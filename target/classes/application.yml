@@ -1,0 +1,25 @@
+server:
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: classpath:keystore.p12
+    key-store-password: MyNewAmo12%
+    key-store-type: PKCS12
+    key-alias: amospringboot
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          azure:
+            client-id: 88608b1d-fc02-43ff-a7eb-df25173cbf1b
+            client-secret: .Sa8Q~y1nmTDDINA_9jzTwfsTXQy0XP8~uDhLbuu
+            scope:
+              - openid
+              - profile
+              - email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          azure:
+            issuer-uri: https://login.microsoftonline.com/51f69a44-f7c1-449a-ab03-37c6980a3a9f/v2.0

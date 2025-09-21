@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <title>Home</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Import custom font for clean typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---------- Theme Variables ---------- */
+    :root{
+      --bg: #0f172a;        /* deep slate background */
+      --card: #ffffff;      /* card background */
+      --text: #0b1220;      /* main text color */
+      --muted: #6b7280;     /* muted text */
+      --accent: #2563eb;    /* blue primary accent */
+      --accent-2: #0ea5e9;  /* cyan secondary accent */
+      --success: #16a34a;   /* green for success states */
+      --shadow: 0 12px 30px rgba(15, 23, 42, .12);
+      --radius: 16px;       /* border radius */
+    }
+
+    /* ---------- Base Styles ---------- */
+    *{ box-sizing: border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 1200px at 20% -10%, rgba(37,99,235,.25), transparent 40%),
+        radial-gradient(1000px 1000px at 120% 0%, rgba(14,165,233,.18), transparent 40%),
+        #f5f7fb;
+    }
+
+    /* Container for page content */
+    .shell{
+      max-width: 860px;
+      margin: 48px auto;
+      padding: 0 20px;
+    }
+
+    /* ---------- Header Styles ---------- */
+    .header{
+      background: linear-gradient(135deg, var(--bg), #1e293b);
+      color:#fff;
+      border-radius: var(--radius);
+      padding: 28px 28px;
+      box-shadow: var(--shadow);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+    }
+    .brand{
+      font-weight: 700;
+      letter-spacing: .2px;
+      display:flex; align-items:center; gap:.75rem;
+    }
+    .brand-logo{
+      width:42px;
+      height:auto;
+      display:block;
+    }
+
+    /* ---------- Card Styles ---------- */
+    .card{
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px;
+      margin-top: 22px;
+    }
+
+    h1{
+      margin:0 0 12px 0;
+      font-size: clamp(22px, 3vw, 28px);
+      letter-spacing: -0.3px;
+    }
+    p{ margin: 0 0 20px 0; color: var(--muted); }
+
+    /* ---------- Layout Helpers ---------- */
+    .row{
+      display:flex; flex-wrap:wrap; gap:18px; align-items:center;
+    }
+
+    /* ---------- Button Styles ---------- */
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      gap:.5rem;
+      padding: 12px 18px;
+      border-radius: 12px;
+      text-decoration:none;
+      font-weight: 600;
+      line-height: 1;
+      border: 1px solid transparent;
+      transition: transform .04s ease, box-shadow .2s ease, background .2s ease, color .2s ease;
+      user-select:none;
+      cursor:pointer;
+      will-change: transform;
+    }
+    .btn:active{ transform: translateY(1px); }
+
+    .btn-primary{
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color:#fff;
+      box-shadow: 0 10px 20px rgba(37,99,235,.25);
+    }
+    .btn-primary:hover{ filter: brightness(1.02); }
+
+    .btn-link{
+      background:#fff;
+      border-color:#e5e7eb;
+      color: var(--accent);
+    }
+    .btn-link:hover{ background:#f8fafc; }
+
+    /* ---------- Metadata / Tags ---------- */
+    .meta{
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      margin: 16px 0 0;
+      font-size: 14px;
+    }
+    .tag{
+      padding: 6px 10px; border-radius: 999px; background:#eef2ff; color:#3b82f6; font-weight:600;
+    }
+
+    .muted{ color: var(--muted); }
+    .username{ color:#111827; font-weight:700; }
+
+    /* Divider line */
+    .divider{
+      height:1px; background:#eef2f7; margin:20px 0;
+    }
+
+    /* Accessibility focus outline */
+    a:focus-visible, button:focus-visible{
+      outline: 3px solid rgba(37,99,235,.4);
+      outline-offset: 2px;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <!-- App header with brand logo and logout button -->
+    <div class="header" role="banner" aria-label="App header">
+      <div class="brand" aria-label="Brand">
+        <img src="/images/amo-logo.png" alt="@MO Logo" class="brand-logo" />
+        <span>Payments</span>
+      </div>
+      <!-- Logout link (Spring Security will handle /logout) -->
+      <a href="/logout" class="btn btn-link" aria-label="Logout">
+        <!-- logout icon (SVG) -->
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 17l5-5-5-5M15 12H3"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Logout
+      </a>
+    </div>
+
+    <!-- Main content card -->
+    <main class="card" role="main">
+      <h1>Welcome!</h1>
+      <p>
+        You are logged in as:
+        <!-- Thymeleaf expression inserts logged-in username -->
+        <strong class="username" th:text="${username}">User</strong>
+      </p>
+
+      <div class="divider"></div>
+
+      <!-- Action buttons -->
+      <div class="row" style="margin-top:4px">
+        <!-- Button to go to Payment page -->
+        <a href="/payment" class="btn btn-primary" aria-label="Go to Payment Page">
+          <!-- payment icon (SVG) -->
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M2 10h20" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          Go to Payment Page
+        </a>
+
+        <!-- Secondary logout button -->
+        <a href="/logout" class="btn btn-link">
+          Logout
+        </a>
+      </div>
+
+      <!-- Metadata section -->
+      <div class="meta">
+        <span class="tag">Secure area</span>
+        <span class="muted">Access your payment features from here.</span>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
