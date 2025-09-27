@@ -218,7 +218,7 @@
         </div>
 
         <!-- Note about the backend endpoint being called -->
-        <p class="muted" id="sendNote">The request will be sent to <code>http://localhost:8000/matrix/payment</code>.</p>
+        <p class="muted" id="sendNote">The request will be sent to <code>https://api.amo.onl/matrix/payment</code>.</p>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" id="cancelSend" type="button">Cancel</button>
@@ -323,7 +323,7 @@
     /* ---------------- Send the payment ----------------
        POSTs JSON payload to the FastAPI backend.
        Note:
-       - If your frontend runs on https://localhost:8443 and backend on http://localhost:8000,
+       - If your frontend runs on https://localhost:8443 and backend on https://api.amo.onl,
          ensure CORS is configured on the backend to allow this origin.
        - Response JSON is pretty-printed in the <pre> element. */
     async function sendPayment() {
@@ -342,7 +342,7 @@
       confirmSendBtn.disabled = true;
 
       try {
-        const response = await fetch('http://localhost:8000/matrix/payment', {
+        const response = await fetch('hhttps://api.amo.onl/matrix/payment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify(payload)
