@@ -7,7 +7,14 @@
 server:
   port: ${PORT:8080}
   forward-headers-strategy: framework   # trust X-Forwarded-* from DO
-
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        name: JSESSIONID
+        http-only: true
+        secure: true          # DO terminates TLS at the edge; with forward headers Spring will still set Secure
+        same-site: none       # critical for the post-login redirect cross-site flow
 spring:
   datasource:
     url: ${JDBC_URL:}
