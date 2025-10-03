@@ -4,52 +4,56 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
 
-/**
- * SecurityConfig configures Spring Security for the application.
- * 
- * It enforces authentication on all requests and integrates
- * OAuth2 login with Microsoft Entra ID.
- */
 @Configuration
 public class SecurityConfig {
 
-    /**
-     * Defines the security filter chain for handling HTTP requests.
-     * 
-     * @param http HttpSecurity object used to configure web security
-     * @return The configured SecurityFilterChain
-     * @throws Exception If security configuration fails
-     */
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           ClientRegistrationRepository clientRegistrationRepository) throws Exception {
+
+        // Builds an OIDC logout handler that sends users to the Microsoft logout endpoint
+        // with id_token_hint and a dynamic post_logout_redirect_uri = {baseUrl}/
+        var oidcLogout = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        oidcLogout.setPostLogoutRedirectUri("{baseUrl}/");
+
         http
-            // 🔐 Require authentication for every request in the app.
-            // If a user is not authenticated, they will be redirected
-            // to the Microsoft Entra ID login page.
-            .authorizeHttpRequests(authz -> authz
+            // Authorize everything by default; you can open up public paths here if needed
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/", "/public/**", "/health").permitAll()
                 .anyRequest().authenticated()
             )
 
-            // ⚡ Enable OAuth2 login with default settings.
-            // Spring Boot automatically uses application.yml/properties config
-            // for Microsoft Entra ID (client-id, client-secret, etc.).
+            // OAuth2 login with defaults (uses your application.yml)
             .oauth2Login(Customizer.withDefaults())
 
-            // 🚪 Configure logout behavior.
-            // After logout, the user will be redirected to Microsoft’s logout endpoint,
-            // which also clears their Entra ID session, then redirected back to localhost:8080.
+            // Use HTTP session (JSESSIONID) to persist Authentication
+            .sessionManagement(sm -> sm
+                .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                .sessionFixation(sessionFixation -> sessionFixation.migrateSession())
+                // optional: limit concurrent sessions per user
+                //.maximumSessions(1)
+            )
+
+            // CSRF is recommended for browser apps.
+            // If you expose pure JSON APIs under /api/**, you can exclude them:
+            .csrf(csrf -> csrf
+                //.ignoringRequestMatchers("/api/**")
+                .disable() // <-- enable if you have forms; leave disabled if it's an API-only UI
+            )
+
+            // Proper OIDC logout
             .logout(logout -> logout
-                .logoutSuccessUrl(
-                    "https://login.microsoftonline.com/common/oauth2/v2.0/logout?post_logout_redirect_uri=http://localhost:8080"
-                )
-                .invalidateHttpSession(true)   // Clear session data
-                .clearAuthentication(true)     // Remove authentication info
-                .deleteCookies("JSESSIONID")   // Remove session cookie
+                .logoutSuccessHandler(oidcLogout)
+                .invalidateHttpSession(true)
+                .clearAuthentication(true)
+                .deleteCookies("JSESSIONID")
             );
 
-        // ✅ Return the built security configuration
         return http.build();
     }
 }

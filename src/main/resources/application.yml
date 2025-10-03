@@ -34,6 +34,7 @@ spring:
               - openid
               - profile
               - email
+              - offline_access   # <-- add this for persistency
             # baseUrl is inferred from request; with forward-headers-strategy it will be https://app.amo.onl
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
