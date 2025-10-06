@@ -5,9 +5,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 @Configuration
 public class SecurityConfig {
@@ -16,13 +20,12 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            ClientRegistrationRepository clientRegistrationRepository) throws Exception {
 
-        // Builds an OIDC logout handler that sends users to the Microsoft logout endpoint
-        // with id_token_hint and a dynamic post_logout_redirect_uri = {baseUrl}/
+        // OIDC logout -> Microsoft Entra end_session_endpoint with id_token_hint + post_logout_redirect_uri
         var oidcLogout = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
         oidcLogout.setPostLogoutRedirectUri("{baseUrl}/");
 
         http
-            // Authorize everything by default; you can open up public paths here if needed
+            // ---------- Authorization ----------
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
                     "/", "/public/**", "/health",
@@ -31,32 +34,82 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
 
-            // OAuth2 login with defaults (uses your application.yml)
+            // ---------- OAuth2 / OIDC Login ----------
             .oauth2Login(Customizer.withDefaults())
 
-            // Use HTTP session (JSESSIONID) to persist Authentication
+            // ---------- Sessions ----------
             .sessionManagement(sm -> sm
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 .sessionFixation(sessionFixation -> sessionFixation.migrateSession())
-                // optional: limit concurrent sessions per user
-                //.maximumSessions(1)
+                .maximumSessions(1)
+                .maxSessionsPreventsLogin(false) // replace old session on new login
+                .sessionRegistry(sessionRegistry())
             )
 
-            // CSRF is recommended for browser apps.
-            // If you expose pure JSON APIs under /api/**, you can exclude them:
+            // ---------- CSRF ----------
+            // Enable for browser; ignore pure JSON APIs
             .csrf(csrf -> csrf
-                //.ignoringRequestMatchers("/api/**")
-                .disable() // <-- enable if you have forms; leave disabled if it's an API-only UI
+                .ignoringRequestMatchers("/api/**")
             )
 
-            // Proper OIDC logout
+            // ---------- Logout ----------
             .logout(logout -> logout
+                // Keep your <a href="/logout"> working by allowing GET.
+                // (Best practice is POST with CSRF token; switch later if you can.)
+                .logoutRequestMatcher(new AntPathRequestMatcher("/logout", "GET"))
                 .logoutSuccessHandler(oidcLogout)
                 .invalidateHttpSession(true)
                 .clearAuthentication(true)
                 .deleteCookies("JSESSIONID")
-            );
+            )
+
+            // ---------- API entry point (401 instead of redirect) ----------
+            .exceptionHandling(ex -> ex
+                .defaultAuthenticationEntryPointFor(
+                    (request, response, authException) -> response.sendError(401),
+                    new AntPathRequestMatcher("/api/**")
+                )
+            )
+
+            // ---------- Security headers ----------
+            .headers(headers -> {
+                // Content Security Policy (CSP)
+                headers.contentSecurityPolicy(csp -> csp.policyDirectives(
+                    "default-src 'self'; " +
+                    "script-src 'self' 'unsafe-inline'; " +                 //
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                    "font-src 'self' https://fonts.gstatic.com; " +
+                    "img-src 'self' data:; " +
+                    "connect-src 'self'; " +
+                    "frame-ancestors 'none';"
+                ));
+
+                // Referrer-Policy
+                headers.referrerPolicy(ref -> ref.policy(ReferrerPolicy.NO_REFERRER));
+
+                // Permissions-Policy (supported in Spring Security 6.2.x)
+                headers.permissionsPolicy(pp -> pp.policy(
+                    "geolocation=(), microphone=(), camera=(), payment=()"
+                ));
+
+                // X-Frame-Options (defense in depth; align with frame-ancestors)
+                headers.frameOptions(frame -> frame.deny());
+
+                // HSTS (enable only if ALL subdomains are HTTPS)
+                headers.httpStrictTransportSecurity(hsts -> hsts
+                    .includeSubDomains(true)
+                    .preload(true)
+                    .maxAgeInSeconds(31536000)
+                );
+            });
 
         return http.build();
     }
+
+    // Required for maximumSessions(...) tracking
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
 }
+
