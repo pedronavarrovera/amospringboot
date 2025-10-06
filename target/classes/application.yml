@@ -41,6 +41,9 @@ spring:
           azure:
             # Use your tenant id from env
             issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
+            user-name-attribute: name               # full display name
+            # user-name-attribute: preferred_username # usually the UPN/email-like
+            # user-name-attribute: email
 
 # =========================
 # Local SSL profile (keep your keystore on 8443)
