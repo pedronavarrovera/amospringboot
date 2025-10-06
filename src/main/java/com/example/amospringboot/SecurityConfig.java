@@ -54,15 +54,12 @@ public class SecurityConfig {
 
             // ---------- Logout ----------
             .logout(logout -> logout
-                // Keep your <a href="/logout"> working by allowing GET.
-                // (Best practice is POST with CSRF token; switch later if you can.)
-                .logoutRequestMatcher(new AntPathRequestMatcher("/logout", "GET"))
-                .logoutSuccessHandler(oidcLogout)
+                .logoutUrl("/logout")                 // POST /logout (matches your Thymeleaf form)
+                .logoutSuccessHandler(oidcLogout)     // triggers Entra end_session with id_token_hint
                 .invalidateHttpSession(true)
                 .clearAuthentication(true)
                 .deleteCookies("JSESSIONID")
             )
-
             // ---------- API entry point (401 instead of redirect) ----------
             .exceptionHandling(ex -> ex
                 .defaultAuthenticationEntryPointFor(
