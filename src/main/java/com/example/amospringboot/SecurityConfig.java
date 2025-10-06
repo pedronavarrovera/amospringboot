@@ -24,7 +24,10 @@ public class SecurityConfig {
         http
             // Authorize everything by default; you can open up public paths here if needed
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/public/**", "/health").permitAll()
+                .requestMatchers(
+                    "/", "/public/**", "/health",
+                    "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico"
+                ).permitAll()
                 .anyRequest().authenticated()
             )
 
