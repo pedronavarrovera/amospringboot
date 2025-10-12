@@ -6,15 +6,17 @@
 # =========================
 server:
   port: ${PORT:8080}
-  forward-headers-strategy: framework   # trust X-Forwarded-* from DO
+  # Trust X-Forwarded-* from DigitalOcean so Spring reconstructs the external URL correctly
+  forward-headers-strategy: framework
   servlet:
     session:
       timeout: 30m
       cookie:
         name: JSESSIONID
         http-only: true
-        secure: true          # DO terminates TLS at the edge; with forward headers Spring will still set Secure
-        same-site: none       # critical for the post-login redirect cross-site flow
+        secure: true          # requires HTTPS at the edge (DO LB/App Platform)
+        same-site: Lax         # correct for OAuth top-level redirect; avoids dropping JSESSIONID
+
 spring:
   datasource:
     url: ${JDBC_URL:}
@@ -23,6 +25,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    open-in-view: false
+
   security:
     oauth2:
       client:
@@ -30,24 +34,26 @@ spring:
           azure:
             client-id: ${AZURE_CLIENT_ID}
             client-secret: ${AZURE_CLIENT_SECRET}
+            # OIDC defaults to authorization_code; scopes below are typical
             scope:
               - openid
               - profile
               - email
-              - offline_access   # <-- add this for persistency
-            # baseUrl is inferred from request; with forward-headers-strategy it will be https://app.amo.onl
+              - offline_access      # refresh tokens if you later use authorized clients
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           azure:
-            # Use your tenant id from env
             issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
-            user-name-attribute: name               # full display name
-            # user-name-attribute: preferred_username # usually the UPN/email-like
-            # user-name-attribute: email
+            # For pure OIDC this is optional; principal defaults to 'sub'. If you need a specific claim
+            # as principal for non-OIDC providers, you'd use user-name-attribute there.
+
+# Optional: enable during troubleshooting; remove or set to INFO afterward
+# logging:
+#   level:
+#     org.springframework.security: DEBUG
 
 # =========================
-# Local SSL profile (keep your keystore on 8443)
-# Activate with:  SPRING_PROFILES_ACTIVE=local-ssl
+# Local SSL profile (activate with: SPRING_PROFILES_ACTIVE=local-ssl)
 # =========================
 ---
 spring:
@@ -60,6 +66,6 @@ server:
   ssl:
     enabled: true
     key-store: classpath:keystore.p12
-    key-store-password: ${KEYSTORE_PASSWORD:}   # set locally
+    key-store-password: ${KEYSTORE_PASSWORD:}
     key-store-type: PKCS12
     key-alias: amospringboot
