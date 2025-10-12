@@ -2,6 +2,7 @@ package com.example.amospringboot;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.session.SessionRegistry;
@@ -9,11 +10,9 @@ import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
-import org.springframework.web.filter.ForwardedHeaderFilter;
-import org.springframework.http.HttpStatus;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 @Configuration
 public class SecurityConfig {
@@ -22,31 +21,30 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            ClientRegistrationRepository clientRegistrationRepository) throws Exception {
 
-        // --- OIDC logout to Entra end_session_endpoint with id_token_hint + post_logout_redirect_uri ---
-        var oidcLogout = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
-        oidcLogout.setPostLogoutRedirectUri("{baseUrl}/");
+        // ---- OIDC logout: sends user to Entra end_session_endpoint with id_token_hint ----
+        LogoutSuccessHandler oidcLogout = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        ((OidcClientInitiatedLogoutSuccessHandler) oidcLogout).setPostLogoutRedirectUri("{baseUrl}/");
 
         http
-            // --- Honor X-Forwarded-* from DO proxy to reconstruct {baseUrl} correctly ---
-            // (ForwardedHeaderFilter bean below actually applies the headers.)
-            // --- Enforce HTTPS at the edge; ok to keep requiresSecure() here as well ---
+            // ---------- Enforce HTTPS so cookies are Secure and redirect_uri is https ----------
             .requiresChannel(ch -> ch.anyRequest().requiresSecure())
 
-            // --- Authorization rules ---
+            // ---------- Authorization ----------
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/public/**", "/health", "/_health/**",
+                .requestMatchers("/", "/public/**", "/health",
                                  "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico")
                 .permitAll()
                 .anyRequest().authenticated()
             )
 
-            // --- OAuth2 / OIDC login (keep session-based defaults) ---
+            // ---------- OAuth2 / OIDC Login ----------
+            // Keep defaults, but make success/failure explicit to avoid ambiguous flows.
             .oauth2Login(oauth -> oauth
                 .defaultSuccessUrl("/home", true)
                 .failureUrl("/login?error")
             )
 
-            // --- Sessions MUST be stateful for OAuth2 (no STATELESS) ---
+            // ---------- Sessions (MUST be stateful for OAuth2) ----------
             .sessionManagement(sm -> sm
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 .sessionFixation(s -> s.migrateSession())
@@ -55,26 +53,29 @@ public class SecurityConfig {
                 .sessionRegistry(sessionRegistry())
             )
 
-            // --- CSRF: keep on for browser; ignore pure JSON APIs if needed ---
+            // ---------- CSRF ----------
+            // Keep CSRF on for browser; ignore pure JSON APIs.
             .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
 
-            // --- Logout with OIDC back-channel to Entra ---
+            // ---------- Logout (OIDC back-channel) ----------
             .logout(logout -> logout
                 .logoutUrl("/logout")                 // POST /logout
-                .logoutSuccessHandler(oidcLogout)
+                .logoutSuccessHandler(oidcLogout)     // Entra end_session
                 .invalidateHttpSession(true)
                 .clearAuthentication(true)
+                // Keep JSESSIONID deletion (safe here) – the issue is during login, not logout.
                 .deleteCookies("JSESSIONID")
             )
 
-            // --- APIs should get 401 JSON instead of HTML redirect ---
+            // ---------- API entry point (401 instead of HTML redirect) ----------
             .exceptionHandling(ex -> ex
                 .defaultAuthenticationEntryPointFor(
-                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                    new AntPathRequestMatcher("/api/**"))
+                    (request, response, authException) -> response.sendError(401),
+                    new AntPathRequestMatcher("/api/**")
+                )
             )
 
-            // --- Security headers ---
+            // ---------- Security headers ----------
             .headers(headers -> {
                 headers.contentSecurityPolicy(csp -> csp.policyDirectives(
                     "default-src 'self'; " +
@@ -102,11 +103,5 @@ public class SecurityConfig {
     @Bean
     public SessionRegistry sessionRegistry() {
         return new SessionRegistryImpl();
-    }
-
-    // Critical when behind DigitalOcean/App Platform LB so {baseUrl} & cookies line up
-    @Bean
-    public ForwardedHeaderFilter forwardedHeaderFilter() {
-        return new ForwardedHeaderFilter();
     }
 }
