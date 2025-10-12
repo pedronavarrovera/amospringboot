@@ -2,7 +2,7 @@ package com.example.amospringboot;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
+
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.session.SessionRegistry;
@@ -10,6 +10,7 @@ import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
@@ -20,47 +21,53 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            ClientRegistrationRepository clientRegistrationRepository) throws Exception {
 
-        // OIDC logout -> Microsoft Entra end_session_endpoint with id_token_hint + post_logout_redirect_uri
-        var oidcLogout = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
-        oidcLogout.setPostLogoutRedirectUri("{baseUrl}/");
+        // ---- OIDC logout: sends user to Entra end_session_endpoint with id_token_hint ----
+        LogoutSuccessHandler oidcLogout = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        ((OidcClientInitiatedLogoutSuccessHandler) oidcLogout).setPostLogoutRedirectUri("{baseUrl}/");
 
         http
+            // ---------- Enforce HTTPS so cookies are Secure and redirect_uri is https ----------
+            .requiresChannel(ch -> ch.anyRequest().requiresSecure())
+
             // ---------- Authorization ----------
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(
-                    "/", "/public/**", "/health",
-                    "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico"
-                ).permitAll()
+                .requestMatchers("/", "/public/**", "/health",
+                                 "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico")
+                .permitAll()
                 .anyRequest().authenticated()
             )
 
             // ---------- OAuth2 / OIDC Login ----------
-            .oauth2Login(Customizer.withDefaults())
+            // Keep defaults, but make success/failure explicit to avoid ambiguous flows.
+            .oauth2Login(oauth -> oauth
+                .defaultSuccessUrl("/home", true)
+                .failureUrl("/login?error")
+            )
 
-            // ---------- Sessions ----------
+            // ---------- Sessions (MUST be stateful for OAuth2) ----------
             .sessionManagement(sm -> sm
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                .sessionFixation(sessionFixation -> sessionFixation.migrateSession())
+                .sessionFixation(s -> s.migrateSession())
                 .maximumSessions(1)
-                .maxSessionsPreventsLogin(false) // replace old session on new login
+                .maxSessionsPreventsLogin(false)
                 .sessionRegistry(sessionRegistry())
             )
 
             // ---------- CSRF ----------
-            // Enable for browser; ignore pure JSON APIs
-            .csrf(csrf -> csrf
-                .ignoringRequestMatchers("/api/**")
-            )
+            // Keep CSRF on for browser; ignore pure JSON APIs.
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
 
-            // ---------- Logout ----------
+            // ---------- Logout (OIDC back-channel) ----------
             .logout(logout -> logout
-                .logoutUrl("/logout")                 // POST /logout (matches your Thymeleaf form)
-                .logoutSuccessHandler(oidcLogout)     // triggers Entra end_session with id_token_hint
+                .logoutUrl("/logout")                 // POST /logout
+                .logoutSuccessHandler(oidcLogout)     // Entra end_session
                 .invalidateHttpSession(true)
                 .clearAuthentication(true)
+                // Keep JSESSIONID deletion (safe here) – the issue is during login, not logout.
                 .deleteCookies("JSESSIONID")
             )
-            // ---------- API entry point (401 instead of redirect) ----------
+
+            // ---------- API entry point (401 instead of HTML redirect) ----------
             .exceptionHandling(ex -> ex
                 .defaultAuthenticationEntryPointFor(
                     (request, response, authException) -> response.sendError(401),
@@ -70,29 +77,18 @@ public class SecurityConfig {
 
             // ---------- Security headers ----------
             .headers(headers -> {
-                // Content Security Policy (CSP)
                 headers.contentSecurityPolicy(csp -> csp.policyDirectives(
                     "default-src 'self'; " +
-                    "script-src 'self' 'unsafe-inline'; " +                 //
+                    "script-src 'self' 'unsafe-inline'; " +
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                     "font-src 'self' https://fonts.gstatic.com; " +
                     "img-src 'self' data:; " +
                     "connect-src 'self' https://api.amo.onl; " +
                     "frame-ancestors 'none';"
                 ));
-
-                // Referrer-Policy
                 headers.referrerPolicy(ref -> ref.policy(ReferrerPolicy.NO_REFERRER));
-
-                // Permissions-Policy (supported in Spring Security 6.2.x)
-                headers.permissionsPolicy(pp -> pp.policy(
-                    "geolocation=(), microphone=(), camera=(), payment=()"
-                ));
-
-                // X-Frame-Options (defense in depth; align with frame-ancestors)
+                headers.permissionsPolicy(pp -> pp.policy("geolocation=(), microphone=(), camera=(), payment=()"));
                 headers.frameOptions(frame -> frame.deny());
-
-                // HSTS (enable only if ALL subdomains are HTTPS)
                 headers.httpStrictTransportSecurity(hsts -> hsts
                     .includeSubDomains(true)
                     .preload(true)
@@ -109,4 +105,3 @@ public class SecurityConfig {
         return new SessionRegistryImpl();
     }
 }
-
