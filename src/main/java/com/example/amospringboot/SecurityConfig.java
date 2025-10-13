@@ -34,6 +34,8 @@ public class SecurityConfig {
                 .requestMatchers("/", "/public/**", "/health",
                                  "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico")
                 .permitAll()
+                // Matrix area (UI pages + JSON endpoints)
+                .requestMatchers("/matrix/**").authenticated()
                 .anyRequest().authenticated()
             )
 
