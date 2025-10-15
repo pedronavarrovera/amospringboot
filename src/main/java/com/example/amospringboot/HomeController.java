@@ -55,13 +55,10 @@ public class HomeController {
      * ⚠️ Access control should be configured in Spring Security
      * to restrict this page to authenticated/authorized users only.
      */
-    @GetMapping("/payment")
-    public String paymentPage(Model model, Principal principal) {
-        if (principal != null) {
-            model.addAttribute("username", principal.getName());
-        } else {
-            model.addAttribute("username", "Anonymous");
-        }
-        return "payment"; // Renders payment.html
-    }
+        // BEFORE (example)
+    // @GetMapping("/payment")
+    // public String paymentPage(Model model, Principal principal) {
+    //     ... old code ...
+    //     return "payment";
+    // }
 }
