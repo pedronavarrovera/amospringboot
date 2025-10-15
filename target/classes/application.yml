@@ -15,6 +15,7 @@ server:
         http-only: true
         secure: true          # DO terminates TLS at the edge; with forward headers Spring will still set Secure
         same-site: none       # critical for the post-login redirect cross-site flow
+
 spring:
   datasource:
     url: ${JDBC_URL:}
@@ -34,16 +35,19 @@ spring:
               - openid
               - profile
               - email
-              - offline_access   # <-- add this for persistency
-            # baseUrl is inferred from request; with forward-headers-strategy it will be https://app.amo.onl
+              - offline_access   # persist refresh tokens
+            # baseUrl is inferred from request; with forward-headers-strategy it will be https://payment.amo.onl
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           azure:
-            # Use your tenant id from env
             issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
             user-name-attribute: name               # full display name
-            # user-name-attribute: preferred_username # usually the UPN/email-like
-            # user-name-attribute: email
+
+# ===== Matrix API (server-to-server) =====
+matrix:
+  api:
+    # In DO (Spring component) set: MATRIX_API_BASE_URL=https://api.amo.onl
+    base-url: ${MATRIX_API_BASE_URL:https://api.amo.onl}
 
 # =========================
 # Local SSL profile (keep your keystore on 8443)
