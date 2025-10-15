@@ -1,7 +1,6 @@
 package com.example.amospringboot.web;
 
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
@@ -9,12 +8,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @RequestMapping("/matrix")
 public class MatrixUiController {
 
-    // Landing page: GET /matrix
+    /** GET /matrix (landing) */
     @GetMapping
-    public String index(Model model) {
-        return "matrix/index"; // looks for templates/matrix/index.html
+    public String index() {
+        return "matrix/index";
     }
 
-    // If you also want server-rendered pages for Analyze/Find,
-    // we can add methods here later. For now, this fixes the /matrix 404.
+    /** GET /matrix/analyze (server-rendered page, client-side fetch) */
+    @GetMapping("/analyze")
+    public String analyzePage() {
+        return "matrix/analyze";
+    }
+
+    /** GET /matrix/cycle/find (server-rendered page, client-side fetch) */
+    @GetMapping("/cycle/find")
+    public String findCyclePage() {
+        return "matrix/cycle-find";
+    }
 }

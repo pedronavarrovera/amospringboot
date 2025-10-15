@@ -1,91 +1,102 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="_csrf" th:content="${_csrf.token}"/>
-  <meta name="_csrf_header" th:content="${_csrf.headerName}"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="UTF-8" />
   <title>Analyze Matrix</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    pre.code { background:#0f172a; color:#e2e8f0; border-radius:.5rem; padding:1rem; overflow:auto; }
+    :root { --bg:#0f172a; --card:#fff; --text:#0b1220; --muted:#6b7280; --accent:#2563eb; --accent-2:#0ea5e9; --shadow:0 12px 30px rgba(15,23,42,.12); --radius:16px; }
+    *{ box-sizing:border-box } body{ margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial; background:#f5f7fb; color:var(--text) }
+    .shell{ max-width:860px; margin:48px auto; padding:0 20px }
+    .header{ background:linear-gradient(135deg,var(--bg),#1e293b); color:#fff; border-radius:var(--radius); padding:24px 28px; box-shadow:var(--shadow); margin-bottom:24px; display:flex; justify-content:space-between; align-items:center }
+    .brand{ display:flex; align-items:center; gap:.75rem; font-weight:700; font-size:20px; letter-spacing:.2px }
+    .brand-logo{ width:42px; height:auto; display:block }
+    .card{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:28px }
+    .row{ display:flex; flex-wrap:wrap; gap:16px }
+    .field{ flex:1 1 320px; display:flex; flex-direction:column }
+    label{ font-weight:600; margin-bottom:6px }
+    input{ padding:12px; border:1px solid #e5e7eb; border-radius:12px }
+    .btn{ display:inline-flex; align-items:center; gap:.5rem; padding:12px 18px; border-radius:12px; font-weight:600; text-decoration:none; border:1px solid #e5e7eb; background:#fff; color:#111 }
+    .btn-primary{ color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent }
+    .btn:hover{ filter:brightness(1.02) }
+    .muted{ color:var(--muted) }
+    pre.code{ background:#0f172a; color:#e2e8f0; border-radius:12px; padding:14px; overflow:auto }
+    .logout-form{ display:inline; margin:0 } .logout-btn{ background:#fff; border:1px solid #e5e7eb; color:var(--accent); border-radius:12px; padding:10px 14px }
   </style>
 </head>
-<body class="bg-light">
-  <div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center">
-      <h1 class="h4 mb-3">Analyze Matrix</h1>
-      <div>
-        <a class="btn btn-outline-secondary me-2" th:href="@{/matrix}">Matrix</a>
-        <a class="btn btn-link" th:href="@{/home}">← Home</a>
+<body>
+  <div class="shell">
+    <div class="header">
+      <div class="brand">
+        <img th:src="@{/images/amo-logo.png}" alt="@MO Logo" class="brand-logo" />
+        <span>Analyze</span>
       </div>
+      <form th:action="@{/logout}" method="post" class="logout-form">
+        <button type="submit" class="logout-btn">Logout</button>
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
+      </form>
     </div>
 
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <form id="analyzeForm" th:action="@{/matrix/analyze}" method="post" th:object="${form}" class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label">Blob name *</label>
-            <input class="form-control" th:field="*{blob_name}" placeholder="e.g. sample.b64" required>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Container (optional)</label>
-            <input class="form-control" th:field="*{container}" placeholder="e.g. mycontainer">
-          </div>
-          <div class="col-12">
-            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
-            <button id="submitBtn" class="btn btn-primary" type="submit">
-              <span class="spinner-border spinner-border-sm me-2 d-none" id="spinner"></span>
-              Analyze
-            </button>
-          </div>
-        </form>
+    <main class="card">
+      <h1 style="margin-top:0">Analyze Matrix</h1>
+      <p class="muted">Download & decode the blobbed matrix code, validate, and compute insights.</p>
 
-        <div class="mt-3" th:if="${error}">
-          <div class="alert alert-danger" th:text="${error}"></div>
+      <form id="analyzeForm">
+        <div class="row">
+          <div class="field">
+            <label>Blob name *</label>
+            <input id="blob_name" placeholder="e.g. sample.b64" required>
+          </div>
+          <div class="field">
+            <label>Container (optional)</label>
+            <input id="container" placeholder="e.g. mycontainer">
+          </div>
         </div>
-      </div>
-    </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn btn-primary" type="submit" id="submitBtn">Analyze</button>
+          <a class="btn" th:href="@{/matrix}">Cancel</a>
+        </div>
+        <div id="error" style="color:#b91c1c; margin-top:10px"></div>
+      </form>
+    </main>
 
-    <div id="resultCard" class="card shadow-sm mt-4 d-none" th:classappend="${result} ? '' : ' d-none'">
-      <div class="card-body">
-        <h5 class="card-title">Result</h5>
-        <pre class="code" id="resultPre" th:text="${#objects.toJson(result)}"> </pre>
-      </div>
-    </div>
+    <section class="card" id="resultCard" style="display:none; margin-top:18px">
+      <h2 style="margin-top:0;">Result</h2>
+      <pre class="code" id="resultPre"></pre>
+    </section>
   </div>
 
   <script>
     const form = document.getElementById('analyzeForm');
-    const spinner = document.getElementById('spinner');
-    const submitBtn = document.getElementById('submitBtn');
     const resultCard = document.getElementById('resultCard');
     const resultPre = document.getElementById('resultPre');
+    const errorEl = document.getElementById('error');
+    const btn = document.getElementById('submitBtn');
 
-    // Progressive enhancement: AJAX submit
-    form?.addEventListener('submit', async (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      spinner.classList.remove('d-none');
-      submitBtn.disabled = true;
+      errorEl.textContent = '';
+      resultCard.style.display = 'none';
+      btn.disabled = true;
 
-      const data = new FormData(form);
-      const params = new URLSearchParams();
-      params.set('blob_name', data.get('blob_name'));
-      const container = data.get('container');
+      const blob_name = document.getElementById('blob_name').value.trim();
+      const container = document.getElementById('container').value.trim();
+      if (!blob_name) { errorEl.textContent = 'blob_name is required'; btn.disabled = false; return; }
+
+      const params = new URLSearchParams({ blob_name });
       if (container) params.set('container', container);
 
       try {
-        // We call the Spring JSON endpoint (GET) via fetch to avoid page reload
-        const res = await fetch(`/matrix/analyze?${params.toString()}`, { method: 'GET' });
-        const json = await res.json();
-        resultPre.textContent = JSON.stringify(json, null, 2);
-        resultCard.classList.remove('d-none');
+        const res = await fetch(`https://api.amo.onl/matrix/analyze?${params.toString()}`, { method: 'GET' });
+        const json = await res.json().catch(() => ({ error: 'Invalid JSON response' }));
+        resultPre.textContent = JSON.stringify({ status: res.status, ...json }, null, 2);
+        resultCard.style.display = 'block';
       } catch (err) {
-        resultPre.textContent = 'Request failed: ' + err;
-        resultCard.classList.remove('d-none');
+        resultPre.textContent = 'Error: ' + err.message;
+        resultCard.style.display = 'block';
       } finally {
-        spinner.classList.add('d-none');
-        submitBtn.disabled = false;
+        btn.disabled = false;
       }
     });
   </script>
