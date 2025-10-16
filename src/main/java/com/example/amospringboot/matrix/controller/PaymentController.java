@@ -17,7 +17,7 @@ import java.util.Map;
 public class PaymentController {
 
     private static final String CONTAINER = "matrices";
-    private static final String NODE_B = "matrices";
+    
     private static final String FALLBACK_MATRIX = "initial-matrix.b64";
 
     private final MatrixApiClient matrixApi;
@@ -38,7 +38,6 @@ public class PaymentController {
             @AuthenticationPrincipal OAuth2User oauth2User,
             @Valid @RequestBody PaymentRequest body) {
 
-        // Authoritative values (ignore any client-supplied equivalents)
         String upn = resolveUpn(oidcUser, oauth2User);
         String nodeA = localPart(upn);
         String latest = safeLatest();
@@ -46,10 +45,15 @@ public class PaymentController {
         body.setBlob_name(latest);
         body.setOut_base(latest);
         body.setNode_a(nodeA);
-        body.setNode_b(NODE_B);
+
+        // node_b comes from user (required @NotBlank in DTO)
+        if (body.getContainer() == null || body.getContainer().isBlank()) {
+            body.setContainer("matrices");
+        }
 
         return matrixApi.payment(body);
     }
+
 
     /* -------------------- helpers -------------------- */
 

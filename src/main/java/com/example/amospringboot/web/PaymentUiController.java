@@ -24,7 +24,6 @@ import java.util.Map;
 public class PaymentUiController {
 
     private static final String CONTAINER = "matrices";
-    private static final String NODE_B   = "matrices";
     private static final String FALLBACK = "initial-matrix.b64";
 
     private final MatrixApiClient client;
@@ -36,14 +35,14 @@ public class PaymentUiController {
     /** Disallow binding for authoritative fields (prevent tampering via request params). */
     @InitBinder("form")
     public void disallowClientControlledFields(WebDataBinder binder) {
-        binder.setDisallowedFields("blob_name", "node_a", "node_b", "out_base");
+        // Disallow only the authoritative fields; allow node_b and container
+        binder.setDisallowedFields("blob_name", "node_a", "out_base");
     }
 
-    /** GET /payment – render form pre-populated with authoritative values. */
     @GetMapping
     public String page(Model model,
-                       @AuthenticationPrincipal OidcUser oidcUser,
-                       @AuthenticationPrincipal OAuth2User oauth2User) {
+                    @AuthenticationPrincipal OidcUser oidcUser,
+                    @AuthenticationPrincipal OAuth2User oauth2User) {
 
         String upn    = resolveUpn(oidcUser, oauth2User);
         String nodeA  = localPart(upn);
@@ -53,31 +52,30 @@ public class PaymentUiController {
         form.setBlob_name(latest);
         form.setOut_base(latest);
         form.setNode_a(nodeA);
-        form.setNode_b(NODE_B);
-        // Optional default container:
-        // form.setContainer(CONTAINER);
+        form.setContainer("matrices");   // hidden default
+        // node_b intentionally left null/blank so user must fill it
 
         model.addAttribute("form", form);
         return "payment";
     }
 
-    /** POST /payment – enforce authoritative values and submit to Matrix API. */
     @PostMapping
     public String submit(@Valid @ModelAttribute("form") Form form,
-                         BindingResult errors,
-                         Model model,
-                         @AuthenticationPrincipal OidcUser oidcUser,
-                         @AuthenticationPrincipal OAuth2User oauth2User) {
+                        BindingResult errors,
+                        Model model,
+                        @AuthenticationPrincipal OidcUser oidcUser,
+                        @AuthenticationPrincipal OAuth2User oauth2User) {
 
-        if (errors.hasErrors()) {
-            return "payment";
-        }
+        if (errors.hasErrors()) return "payment";
         if (form.getAmount() == null || form.getAmount().signum() <= 0) {
             model.addAttribute("error", "Amount must be greater than 0");
             return "payment";
         }
+        if (isBlank(form.getNode_b())) {
+            model.addAttribute("error", "Node B is required");
+            return "payment";
+        }
 
-        // Authoritative server-side values (ignore anything from client for these)
         String upn    = resolveUpn(oidcUser, oauth2User);
         String nodeA  = localPart(upn);
         String latest = safeLatest();
@@ -86,22 +84,23 @@ public class PaymentUiController {
         req.setBlob_name(latest);
         req.setOut_base(latest);
         req.setNode_a(nodeA);
-        req.setNode_b(NODE_B);
+        req.setNode_b(form.getNode_b());      // <-- user-entered
         req.setAmount(form.getAmount());
-        req.setContainer(form.getContainer());
+        req.setContainer("matrices");         // enforce hidden default
 
         Map<String, Object> result = client.payment(req);
         model.addAttribute("result", result);
 
-        // Also re-show the enforced values in the form after submit
+        // Re-show enforced values after submit
         form.setBlob_name(latest);
         form.setOut_base(latest);
         form.setNode_a(nodeA);
-        form.setNode_b(NODE_B);
+        form.setContainer("matrices");
         model.addAttribute("form", form);
 
         return "payment";
     }
+
 
     /* -------------------- helpers -------------------- */
 
