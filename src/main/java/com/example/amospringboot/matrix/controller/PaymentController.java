@@ -3,18 +3,17 @@ package com.example.amospringboot.matrix.controller;
 import com.example.amospringboot.matrix.MatrixApiClient;
 import com.example.amospringboot.matrix.dto.PaymentRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.validation.BindingResult;
-import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 
-@Controller
+import java.util.Map;
+
+@RestController
 public class PaymentController {
 
     private static final String CONTAINER = "matrices";
@@ -27,59 +26,32 @@ public class PaymentController {
         this.matrixApi = matrixApi;
     }
 
-    @InitBinder("form")
-    public void disallowClientControlledFields(WebDataBinder binder) {
-        // Never accept these from the browser
-        binder.setDisallowedFields("blob_name", "node_a", "node_b", "out_base");
-    }
-
-    @GetMapping("/payment")
-    public String paymentForm(
+    /**
+     * POST /api/payment – JSON endpoint (no view). Enforces authoritative values:
+     * - node_a from UPN (local-part)
+     * - blob_name & out_base from latest blob in container
+     * - node_b fixed to "matrices"
+     */
+    @PostMapping(path = "/api/payment", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> makePayment(
             @AuthenticationPrincipal OidcUser oidcUser,
             @AuthenticationPrincipal OAuth2User oauth2User,
-            Model model) {
+            @Valid @RequestBody PaymentRequest body) {
 
+        // Authoritative values (ignore any client-supplied equivalents)
         String upn = resolveUpn(oidcUser, oauth2User);
         String nodeA = localPart(upn);
         String latest = safeLatest();
 
-        PaymentRequest form = new PaymentRequest();
-        form.setBlob_name(latest);
-        form.setOut_base(latest);
-        form.setNode_a(nodeA);
-        form.setNode_b(NODE_B);
+        body.setBlob_name(latest);
+        body.setOut_base(latest);
+        body.setNode_a(nodeA);
+        body.setNode_b(NODE_B);
 
-        model.addAttribute("form", form);
-        return "payment";
+        return matrixApi.payment(body);
     }
 
-    @PostMapping("/payment")
-    public String makePayment(
-            @AuthenticationPrincipal OidcUser oidcUser,
-            @AuthenticationPrincipal OAuth2User oauth2User,
-            @Valid @ModelAttribute("form") PaymentRequest form,
-            BindingResult errors,
-            Model model) {
-
-        if (errors.hasErrors()) return "payment";
-
-        // Authoritative values
-        String upn = resolveUpn(oidcUser, oauth2User);
-        String nodeA = localPart(upn);
-        String latest = safeLatest();
-
-        form.setBlob_name(latest);
-        form.setOut_base(latest);
-        form.setNode_a(nodeA);
-        form.setNode_b(NODE_B);
-
-        // Call your backend payment endpoint
-        var result = matrixApi.payment(form);
-
-        model.addAttribute("success", true);
-        model.addAttribute("result", result);
-        return "payment";
-    }
+    /* -------------------- helpers -------------------- */
 
     private String safeLatest() {
         try {
@@ -123,4 +95,3 @@ public class PaymentController {
         return null;
     }
 }
-
