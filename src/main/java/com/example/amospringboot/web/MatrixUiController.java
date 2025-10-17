@@ -33,23 +33,40 @@ public class MatrixUiController {
         return "matrix/index";
     }
 
-    // -------- Analyze (server-rendered) --------
+    // ===================== ANALYZE (authoritative fields) =====================
+
+    /** Analyze form: prevent binding of authoritative fields to avoid tampering. */
+    @InitBinder("form")
+    public void disallowAnalyzeAuthoritative(WebDataBinder binder) {
+        binder.setDisallowedFields("blob_name", "container");
+    }
+
+    /** GET /matrix/analyze – pre-populate with latest blob + 'matrices' (authoritative). */
     @GetMapping("/analyze")
-    public String analyzePage(Model model,
-                              @RequestParam(value = "blob_name", required = false) String blobName,
-                              @RequestParam(value = "container", required = false) String container) {
-        model.addAttribute("form", new AnalyzeForm(blobName, container));
+    public String analyzePage(Model model) {
+        String latest = safeLatest();
+
+        AnalyzeForm form = new AnalyzeForm();
+        form.setBlob_name(latest);
+        form.setContainer(CONTAINER);
+
+        model.addAttribute("form", form);
         return "matrix/analyze";
     }
 
+    /** POST /matrix/analyze – reapply authoritative values and call API. */
     @PostMapping("/analyze")
     public String analyzeSubmit(@ModelAttribute("form") AnalyzeForm form, Model model) {
-        if (form.getBlob_name() == null || form.getBlob_name().isBlank()) {
-            model.addAttribute("error", "blob_name is required");
-            return "matrix/analyze";
-        }
+        // Re-enforce authoritative values regardless of client input
+        String latest = safeLatest();
+        form.setBlob_name(latest);
+        form.setContainer(CONTAINER);
+
         Map<String, Object> result = client.analyze(form.getBlob_name(), form.getContainer());
         model.addAttribute("result", result);
+
+        // Keep showing enforced values after submit
+        model.addAttribute("form", form);
         return "matrix/analyze";
     }
 
@@ -57,7 +74,7 @@ public class MatrixUiController {
 
     /** Only for cycle-find: prevent binding of authoritative fields (ignore tampering). */
     @InitBinder("cycleForm")
-    public void disallowAuthoritative(WebDataBinder binder) {
+    public void disallowCycleAuthoritative(WebDataBinder binder) {
         // These must come from server: blob_name, out_base, container, node_a
         binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
     }
@@ -119,6 +136,8 @@ public class MatrixUiController {
         return "matrix/cycle-find";
     }
 
+    // ===================== helpers =====================
+
     private String safeLatest() {
         try {
             return client.latestBlob(CONTAINER, FALLBACK);
@@ -166,8 +185,8 @@ public class MatrixUiController {
     // --- form objects ---
     public static class AnalyzeForm {
         @NotBlank(message = "blob_name is required")
-        private String blob_name;
-        private String container;
+        private String blob_name;   // authoritative
+        private String container;   // authoritative
         public AnalyzeForm() {}
         public AnalyzeForm(String blob_name, String container) { this.blob_name = blob_name; this.container = container; }
         public String getBlob_name() { return blob_name; }
@@ -198,3 +217,4 @@ public class MatrixUiController {
         public void setOut_base(String out_base) { this.out_base = out_base; }
     }
 }
+
