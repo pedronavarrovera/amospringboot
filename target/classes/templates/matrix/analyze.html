@@ -34,19 +34,70 @@
         <span>Analyze</span>
       </div>
       <form th:action="@{/logout}" method="post">
-        <button class="btn">Logout</button>
-        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+        <button class="btn" type="submit">Logout</button>
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
       </form>
     </div>
 
     <main class="card">
       <h1 style="margin-top:0">Analyze Matrix</h1>
-      <p class="muted">Download & decode the blobbed matrix code, validate, and compute insights.</p>
+      <p class="muted">Download &amp; decode the blobbed matrix code, validate, and compute insights.</p>
 
+      <!-- Model attribute 'form' provided by controller -->
       <form th:action="@{/matrix/analyze}" method="post" th:object="${form}">
         <div class="row">
+          <!-- blob_name: authoritative (latest) -->
           <div class="field">
             <label>Blob name (fixed)</label>
-            <input type="hidden" th:field="*{blob_name}">
-            <div class="readonly-value
+            <input type="hidden" th:field="*{blob_name}" />
+            <div class="readonly-value" th:text="*{blob_name}">loading…</div>
+          </div>
 
+          <!-- container: show default 'matrices' if null -->
+          <div class="field">
+            <label>Container (fixed)</label>
+            <input type="hidden" th:field="*{container}" th:value="${form.container} ?: 'matrices'" />
+            <div class="readonly-value" th:text="${form.container} ?: 'matrices'">matrices</div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
+          <button class="btn btn-primary" type="submit">Analyze</button>
+          <a class="btn" th:href="@{/matrix}">Cancel</a>
+        </div>
+
+        <div style="color:#b91c1c;margin-top:10px" th:if="${error}" th:text="${error}"></div>
+      </form>
+    </main>
+
+    <!-- Result -->
+    <section class="card" th:if="${result}" style="margin-top:18px">
+      <h2 style="margin-top:0;">Result</h2>
+
+      <!-- Put JSON safely using Spring's ObjectMapper bean -->
+      <script type="application/json" id="analysisData"
+              th:utext="${@objectMapper.writeValueAsString(result)}">
+        {}
+      </script>
+
+      <pre class="code" id="resultJson">Loading…</pre>
+
+      <script>
+        (function () {
+          var el = document.getElementById('analysisData');
+          var text = el ? el.textContent : '{}';
+          var pretty;
+          try {
+            pretty = JSON.stringify(JSON.parse(text), null, 2);
+          } catch (e) {
+            pretty = text;
+          }
+          var pre = document.getElementById('resultJson');
+          if (pre) pre.textContent = pretty;
+        })();
+      </script>
+    </section>
+  </div>
+</body>
+</html>
