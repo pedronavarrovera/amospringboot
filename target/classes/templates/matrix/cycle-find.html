@@ -6,17 +6,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root{ --bg:#0f172a; --card:#fff; --text:#0b1220; --muted:#6b7280; --accent:#2563eb; --accent-2:#0ea5e9; --shadow:0 12px 30px rgba(15,23,42,.12); --radius:16px; }
-    *{ box-sizing:border-box } body{ margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial; background:#f5f7fb; color:var(--text) }
+    :root{
+      --bg:#0f172a; --card:#fff; --text:#0b1220; --muted:#6b7280;
+      --accent:#2563eb; --accent-2:#0ea5e9; --shadow:0 12px 30px rgba(15,23,42,.12); --radius:16px;
+    }
+    *{ box-sizing:border-box }
+    body{
+      margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+      background:#f5f7fb; color:var(--text)
+    }
     .shell{ max-width:860px; margin:48px auto; padding:0 20px }
-    .header{ background:linear-gradient(135deg,var(--bg),#1e293b); color:#fff; border-radius:var(--radius); padding:24px 28px; box-shadow:var(--shadow); margin-bottom:24px; display:flex; justify-content:space-between; align-items:center }
+    .header{
+      background:linear-gradient(135deg,var(--bg),#1e293b); color:#fff; border-radius:var(--radius);
+      padding:24px 28px; box-shadow:var(--shadow); margin-bottom:24px; display:flex; justify-content:space-between; align-items:center
+    }
     .brand{ display:flex; align-items:center; gap:.75rem; font-weight:700; font-size:20px }
     .brand-logo{ width:42px; height:auto; display:block }
     .card{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:28px }
-    .row{ display:flex; flex-wrap:wrap; gap:16px }
+    .row{ display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end }
     .field{ flex:1 1 240px; display:flex; flex-direction:column }
     label{ font-weight:600; margin-bottom:6px }
     input{ padding:12px; border:1px solid #e5e7eb; border-radius:12px }
+    .readonly-value{ padding:12px; border:1px dashed #e5e7eb; border-radius:12px; background:#fafafa; color:var(--muted) }
     .btn{ display:inline-flex; align-items:center; gap:.5rem; padding:12px 18px; border-radius:12px; font-weight:600; text-decoration:none; border:1px solid #e5e7eb; background:#fff; color:#111 }
     .btn-primary{ color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent }
     .btn:hover{ filter:brightness(1.02) }
@@ -31,45 +42,68 @@
         <img th:src="@{/images/amo-logo.png}" alt="@MO Logo" class="brand-logo" />
         <span>Find Cycle</span>
       </div>
-      <form th:action="@{/logout}" method="post"><button class="btn">Logout</button><input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/></form>
+      <form th:action="@{/logout}" method="post">
+        <button class="btn">Logout</button>
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+      </form>
     </div>
 
     <main class="card">
       <h1 style="margin-top:0">Find Cycle</h1>
       <p class="muted">Find A → B → shortest path back to A. Optionally apply settlement.</p>
 
-      <form th:action="@{/matrix/cycle/find}" method="post" th:object="${form}">
+      <!-- IMPORTANT: controller should add model attribute 'cycleForm' -->
+      <form th:action="@{/matrix/cycle/find}" method="post" th:object="${cycleForm}">
         <div class="row">
+          <!-- blob_name (authoritative) -->
           <div class="field">
-            <label>Blob name *</label>
-            <input th:field="*{blob_name}" placeholder="sample.b64" required>
+            <label>Blob name (fixed)</label>
+            <input type="hidden" th:field="*{blob_name}">
+            <div class="readonly-value" th:text="*{blob_name}">loading…</div>
           </div>
+
+          <!-- out_base (authoritative) -->
           <div class="field">
-            <label>Node A *</label>
-            <input th:field="*{node_a}" placeholder="Alice" required>
+            <label>Out base (fixed)</label>
+            <input type="hidden" th:field="*{out_base}">
+            <div class="readonly-value" th:text="*{out_base}">loading…</div>
           </div>
+
+          <!-- container (authoritative: matrices) -->
+          <div class="field">
+            <label>Container (fixed)</label>
+            <input type="hidden" th:field="*{container}" th:value="'matrices'">
+            <div class="readonly-value">matrices</div>
+          </div>
+
+          <!-- node_a (authoritative: UPN local-part) -->
+          <div class="field">
+            <label>Node A (fixed)</label>
+            <input type="hidden" th:field="*{node_a}">
+            <div class="readonly-value" th:text="*{node_a}">loading…</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <!-- node_b (user-entered) -->
           <div class="field">
             <label>Node B *</label>
-            <input th:field="*{node_b}" placeholder="Bob" required>
+            <input th:field="*{node_b}" placeholder="Enter destination node" required>
           </div>
-          <div class="field">
-            <label>Container (optional)</label>
-            <input th:field="*{container}" placeholder="mycontainer">
-          </div>
-          <div class="field">
+
+          <!-- apply_settlement (user option) -->
+          <div class="field" style="align-items:flex-start">
             <label class="muted">Apply settlement (optional)</label>
             <input type="checkbox" th:field="*{apply_settlement}">
           </div>
-          <div class="field">
-            <label>Out base (optional)</label>
-            <input th:field="*{out_base}" placeholder="payment-update">
-          </div>
         </div>
+
         <div class="row" style="margin-top:12px">
           <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
           <button class="btn btn-primary" type="submit">Find</button>
           <a class="btn" th:href="@{/matrix}">Cancel</a>
         </div>
+
         <div style="color:#b91c1c;margin-top:10px" th:if="${error}" th:text="${error}"></div>
       </form>
     </main>
@@ -81,3 +115,4 @@
   </div>
 </body>
 </html>
+
