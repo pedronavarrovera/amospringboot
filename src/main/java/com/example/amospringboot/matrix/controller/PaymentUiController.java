@@ -1,4 +1,4 @@
-package com.example.amospringboot.web;
+package com.example.amospringboot.matrix.controller;
 
 import com.example.amospringboot.matrix.MatrixApiClient;
 import com.example.amospringboot.matrix.dto.PaymentRequest;
@@ -19,6 +19,7 @@ import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 @Controller
@@ -90,16 +91,16 @@ public class PaymentUiController {
         req.setBlob_name(latest);
         req.setOut_base(latest);
         req.setNode_a(nodeA);
-        req.setNode_b(form.getNode_b());      // user-entered
-        req.setContainer(CONTAINER);          // enforce default
-        req.setAmount(form.getAmount());      // Integer; if your DTO expects BigDecimal, adjust here
+        req.setNode_b(form.getNode_b());                 // user-entered
+        req.setContainer(CONTAINER);                     // enforce default
+        req.setAmount(BigDecimal.valueOf(form.getAmount())); // FIX: Integer -> BigDecimal
 
         Map<String, Object> result = client.payment(req);
 
-        // Serialize JSON for the template <script id="paymentResult">
+        // Provide JSON to the view for <script id="paymentResult">
         model.addAttribute("resultJson", safeJson(result));
 
-        // Optional: drive banners your template already supports
+        // Optional banners (your template supports success/errorMessage)
         Object status = result.get("status");
         if ("ok".equals(String.valueOf(status))) {
             model.addAttribute("success", "Payment applied successfully.");
@@ -175,11 +176,10 @@ public class PaymentUiController {
     public static class Form {
         @NotBlank private String blob_name; // server-enforced
         @NotBlank private String node_a;    // server-enforced (UPN local-part)
-
         @NotBlank private String node_b;    // user-entered (recipient)
 
         @NotNull @Min(1)
-        private Integer amount;             // use Integer; if you prefer BigDecimal, convert in submit()
+        private Integer amount;             // Integer in form
 
         private String out_base;            // server-enforced (latest blob)
         private String container;           // server-enforced "matrices"
