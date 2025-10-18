@@ -56,65 +56,12 @@
     .btn-link { background:#fff; border:1px solid #e5e7eb; color: var(--accent); }
     pre.code { background:#0f172a; color:#e2e8f0; border-radius:12px; padding:14px; overflow:auto; }
 
-    /* Banners */
     .banner {
-      display:none; margin-top: 18px; padding: 14px 16px; border-radius: 12px;
-      border: 1px solid transparent;
+      display:none; margin: 18px auto 0; padding: 14px 16px; border-radius: 12px;
+      border: 1px solid transparent; max-width: 860px;
     }
-    .banner-success { display:none; background: var(--success-bg); color: var(--success-text); border-color: #a7f3d0; }
-    .banner-error { display:none; background: var(--error-bg); color: var(--error-text); border-color: #fecaca; }
-
-    /* Modal Styles */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(15,23,42,0.65);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-    .modal {
-      background: var(--card);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 24px 28px;
-      max-width: 520px;
-      width: calc(100% - 32px);
-      animation: fadeIn 0.25s ease;
-    }
-    .modal h3 {
-      margin: 0 0 12px 0;
-      font-size: 22px;
-      color: var(--text);
-    }
-    .modal p { margin: 0 0 16px 0; color: var(--muted); }
-    .summary {
-      text-align:left;
-      background:#f8fafc;
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      padding:12px 14px;
-      margin-bottom:16px;
-      font-size:14px;
-      line-height:1.5;
-    }
-    .summary dt { font-weight:600; }
-    .summary dd { margin: 0 0 8px 0; color:#334155; }
-    .modal-buttons {
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
-    }
-    .btn-cancel {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      color: var(--muted);
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+    .banner-success { background: var(--success-bg); color: var(--success-text); border-color: #a7f3d0; }
+    .banner-error { background: var(--error-bg); color: var(--error-text); border-color: #fecaca; }
   </style>
 </head>
 <body>
@@ -142,7 +89,8 @@
             <input type="hidden" th:field="*{blob_name}" />
             <div class="readonly-value" th:text="*{blob_name}">loading…</div>
           </div>
-          <input type="hidden" th:field="*{container}" th:value="${form.container} ?: 'matrices'" />
+          <!-- Bind container directly; visible value still shows default if null -->
+          <input type="hidden" th:field="*{container}" />
         </div>
 
         <div class="row">
@@ -175,118 +123,121 @@
           <a class="btn btn-link" th:href="@{/home}">Cancel</a>
         </div>
 
+        <!-- Server-side validation error (string) -->
         <div style="color:#b91c1c;margin-top:10px" th:if="${error}" th:text="${error}"></div>
       </form>
     </main>
 
-    <!-- Success / Error banners (populated by JS after response) -->
-    <div id="successBanner" class="banner banner-success"></div>
-    <div id="errorBanner" class="banner banner-error"></div>
+    <!-- Success / Error banners (populated by JS or server via flash attrs) -->
+    <div id="successBanner" class="banner banner-success"
+         th:if="${success}" th:text="${success}"></div>
+    <div id="errorBanner" class="banner banner-error"
+         th:if="${errorMessage}" th:text="${errorMessage}"></div>
 
-    <section class="card" th:if="${result}" style="margin-top:18px">
+    <!-- Result (renders if controller/flash provides resultJson) -->
+    <section class="card" th:if="${resultJson}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
-      <script type="application/json" id="paymentResult"
-              th:utext="${@objectMapper.writeValueAsString(result)}">{}</script>
+      <script type="application/json" id="paymentResult" th:utext="${resultJson}">{}</script>
       <pre class="code" id="resultJson">Loading…</pre>
     </section>
   </div>
 
   <!-- Modal Confirmation -->
-  <div id="confirmModal" class="modal-overlay" aria-hidden="true" role="dialog" aria-modal="true">
-    <div class="modal" role="document">
-      <h3>Confirm Payment</h3>
-      <p>Please review the details before submitting.</p>
+  <div id="confirmModal" class="modal-overlay" aria-hidden="true" role="dialog" aria-modal="true" style="position:fixed; inset:0; background: rgba(15,23,42,0.65); display:none; align-items:center; justify-content:center; z-index:1000;">
+    <div class="modal" role="document" style="background:#fff; border-radius:16px; box-shadow:var(--shadow); padding:24px 28px; max-width:520px; width:calc(100% - 32px);">
+      <h3 style="margin:0 0 12px 0; font-size:22px; color:#0b1220;">Confirm Payment</h3>
+      <p style="margin:0 0 16px 0; color:#6b7280;">Please review the details before submitting.</p>
 
-      <dl class="summary">
-        <dt>Blob</dt>      <dd id="sumBlob">—</dd>
-        <dt>Container</dt> <dd id="sumContainer">—</dd>
-        <dt>From (Node A)</dt> <dd id="sumFrom">—</dd>
-        <dt>To (Node B)</dt>   <dd id="sumTo">—</dd>
-        <dt>Amount</dt>    <dd id="sumAmount">—</dd>
-        <dt>Out base</dt>  <dd id="sumOutBase">—</dd>
+      <dl class="summary" style="text-align:left; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:12px 14px; margin:0 0 16px 0; font-size:14px; line-height:1.5;">
+        <dt style="font-weight:600;">Blob</dt>      <dd id="sumBlob" style="margin:0 0 8px 0; color:#334155;">—</dd>
+        <dt style="font-weight:600;">Container</dt> <dd id="sumContainer" style="margin:0 0 8px 0; color:#334155;">—</dd>
+        <dt style="font-weight:600;">From (Node A)</dt> <dd id="sumFrom" style="margin:0 0 8px 0; color:#334155;">—</dd>
+        <dt style="font-weight:600;">To (Node B)</dt>   <dd id="sumTo" style="margin:0 0 8px 0; color:#334155;">—</dd>
+        <dt style="font-weight:600;">Amount</dt>    <dd id="sumAmount" style="margin:0 0 8px 0; color:#334155;">—</dd>
+        <dt style="font-weight:600;">Out base</dt>  <dd id="sumOutBase" style="margin:0 0 8px 0; color:#334155;">—</dd>
       </dl>
 
-      <div class="modal-buttons">
-        <button id="confirmNo" class="btn btn-cancel" type="button">Cancel</button>
+      <div class="modal-buttons" style="display:flex; justify-content:flex-end; gap:12px;">
+        <button id="confirmNo" class="btn btn-link" type="button">Cancel</button>
         <button id="confirmYes" class="btn btn-primary" type="button">Yes, Submit</button>
       </div>
     </div>
   </div>
 
   <script>
-    // Elements
-    const submitBtn   = document.getElementById('submitBtn');
-    const modal       = document.getElementById('confirmModal');
-    const yesBtn      = document.getElementById('confirmYes');
-    const noBtn       = document.getElementById('confirmNo');
-    const form        = document.getElementById('paymentForm');
+    // ---- Elements
+    const submitBtn     = document.getElementById('submitBtn');
+    const modalOverlay  = document.getElementById('confirmModal');
+    const yesBtn        = document.getElementById('confirmYes');
+    const noBtn         = document.getElementById('confirmNo');
+    const form          = document.getElementById('paymentForm');
 
-    // Summary fields
-    const sumBlob     = document.getElementById('sumBlob');
-    const sumContainer= document.getElementById('sumContainer');
-    const sumFrom     = document.getElementById('sumFrom');
-    const sumTo       = document.getElementById('sumTo');
-    const sumAmount   = document.getElementById('sumAmount');
-    const sumOutBase  = document.getElementById('sumOutBase');
+    // Summary elements
+    const sumBlob       = document.getElementById('sumBlob');
+    const sumContainer  = document.getElementById('sumContainer');
+    const sumFrom       = document.getElementById('sumFrom');
+    const sumTo         = document.getElementById('sumTo');
+    const sumAmount     = document.getElementById('sumAmount');
+    const sumOutBase    = document.getElementById('sumOutBase');
 
     // Banners
-    const successBanner = document.getElementById('successBanner');
-    const errorBanner   = document.getElementById('errorBanner');
+    const successBanner = document.getElementById('successBanner') || (function(){ const d=document.createElement('div'); d.id='successBanner'; d.className='banner banner-success'; document.body.appendChild(d); return d; })();
+    const errorBanner   = document.getElementById('errorBanner')   || (function(){ const d=document.createElement('div'); d.id='errorBanner'; d.className='banner banner-error'; document.body.appendChild(d); return d; })();
 
-    // Show modal with live summary pulled from the form
+    // Helper to get input value by name from the form
+    const val = (name, fallback='') => (form.querySelector(`[name="${name}"]`)?.value ?? fallback);
+
+    // Open confirmation modal and populate summary
     submitBtn.addEventListener('click', () => {
-      // Pull visible values (divs) and inputs
-      sumBlob.textContent      = (form.querySelector('[th\\:field="*{blob_name}"]') ? '' : '') || document.querySelector('.readonly-value[th\\:text="*{blob_name}"]')?.textContent || '';
-      sumContainer.textContent = form.querySelector('input[name="container"]')?.value || 'matrices';
-      sumFrom.textContent      = document.querySelector('.readonly-value[th\\:text="*{node_a}"]')?.textContent || '';
-      sumTo.textContent        = form.querySelector('input[name="node_b"]')?.value || '';
-      sumAmount.textContent    = form.querySelector('input[name="amount"]')?.value || '';
-      sumOutBase.textContent   = document.querySelector('.readonly-value[th\\:text="*{out_base}"]')?.textContent || '';
+      sumBlob.textContent      = val('blob_name');
+      sumContainer.textContent = val('container') || 'matrices';
+      sumFrom.textContent      = val('node_a');
+      sumTo.textContent        = val('node_b');
+      sumAmount.textContent    = val('amount');
+      sumOutBase.textContent   = val('out_base');
 
-      modal.style.display = 'flex';
-      modal.setAttribute('aria-hidden', 'false');
+      modalOverlay.style.display = 'flex';
+      modalOverlay.setAttribute('aria-hidden', 'false');
     });
 
+    // Cancel modal
+    noBtn.addEventListener('click', () => {
+      modalOverlay.style.display = 'none';
+      modalOverlay.setAttribute('aria-hidden', 'true');
+    });
+
+    // Submit (standard form POST -> server renders back with resultJson)
     yesBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
-      modal.setAttribute('aria-hidden', 'true');
+      modalOverlay.style.display = 'none';
+      modalOverlay.setAttribute('aria-hidden', 'true');
       form.submit();
     });
 
-    noBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
-      modal.setAttribute('aria-hidden', 'true');
-    });
+    // On load: pretty-print result JSON (if server provided it) and show banners
+    (function initResult() {
+      const scriptEl = document.getElementById('paymentResult');
+      if (!scriptEl) return;
 
-    // Pretty-print result JSON if present + show success/error banners
-    (function () {
-      const el = document.getElementById('paymentResult');
-      if (!el) return;
-
-      const text = el.textContent || '{}';
-      let json, pretty = text;
+      const raw = scriptEl.textContent || '{}';
+      let json = null, pretty = raw;
       try {
-        json = JSON.parse(text);
+        json = JSON.parse(raw);
         pretty = JSON.stringify(json, null, 2);
-      } catch (_) {
-        // leave as raw text
-      }
+      } catch (_) { /* not JSON, show raw */ }
 
-      // dump JSON to <pre>
       const pre = document.getElementById('resultJson');
       if (pre) pre.textContent = pretty;
 
-      // Show confirmation if written
+      // Banner logic (client-side)
       if (json && json.status === 'ok' && json.written_blob) {
         successBanner.style.display = 'block';
-        successBanner.classList.add('banner-success');
         successBanner.textContent = '✅ Payment applied. Matrix written to blob: ' + json.written_blob;
       } else if (json && json.status && json.status !== 'ok') {
         errorBanner.style.display = 'block';
-        errorBanner.classList.add('banner-error');
         errorBanner.textContent = '⚠️ Payment response: ' + (json.note || json.status);
       }
     })();
   </script>
 </body>
 </html>
+

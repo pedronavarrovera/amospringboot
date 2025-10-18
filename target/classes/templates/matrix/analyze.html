@@ -56,7 +56,7 @@
           <!-- container: show default 'matrices' if null -->
           <div class="field">
             <label>Container (fixed)</label>
-            <input type="hidden" th:field="*{container}" th:value="${form.container} ?: 'matrices'" />
+            <input type="hidden" th:field="*{container}" />
             <div class="readonly-value" th:text="${form.container} ?: 'matrices'">matrices</div>
           </div>
         </div>
@@ -75,11 +75,8 @@
     <section class="card" th:if="${result}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
 
-      <!-- Put JSON safely using Spring's ObjectMapper bean -->
-      <script type="application/json" id="analysisData"
-              th:utext="${@objectMapper.writeValueAsString(result)}">
-        {}
-      </script>
+      <!-- Use pre-serialized JSON from the controller: resultJson -->
+      <script type="application/json" id="analysisData" th:utext="${resultJson}">{}<!-- fallback --></script>
 
       <pre class="code" id="resultJson">Loading…</pre>
 

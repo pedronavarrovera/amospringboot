@@ -2,6 +2,8 @@ package com.example.amospringboot.web;
 
 import com.example.amospringboot.matrix.MatrixApiClient;
 import com.example.amospringboot.matrix.dto.CycleFindRequest;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -23,9 +25,11 @@ public class MatrixUiController {
     private static final String FALLBACK  = "initial-matrix.b64";
 
     private final MatrixApiClient client;
+    private final ObjectMapper objectMapper;
 
-    public MatrixUiController(MatrixApiClient client) {
+    public MatrixUiController(MatrixApiClient client, ObjectMapper objectMapper) {
         this.client = client;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping
@@ -51,6 +55,7 @@ public class MatrixUiController {
         form.setContainer(CONTAINER);
 
         model.addAttribute("form", form);
+        // No result yet on GET
         return "matrix/analyze";
     }
 
@@ -64,6 +69,7 @@ public class MatrixUiController {
 
         Map<String, Object> result = client.analyze(form.getBlob_name(), form.getContainer());
         model.addAttribute("result", result);
+        model.addAttribute("resultJson", toJson(result)); // <— pre-serialized JSON for the template
 
         // Keep showing enforced values after submit
         model.addAttribute("form", form);
@@ -130,6 +136,7 @@ public class MatrixUiController {
 
         Map<String, Object> result = client.findCycle(req);
         model.addAttribute("result", result);
+        model.addAttribute("resultJson", toJson(result)); // <— serialized for template use
 
         // Keep showing the enforced values after submit
         model.addAttribute("cycleForm", form);
@@ -182,6 +189,15 @@ public class MatrixUiController {
 
     private boolean isBlank(String s) { return s == null || s.isBlank(); }
 
+    /** Serialize to JSON, falling back to a literal null to avoid template errors. */
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            return "null";
+        }
+    }
+
     // --- form objects ---
     public static class AnalyzeForm {
         @NotBlank(message = "blob_name is required")
@@ -217,4 +233,3 @@ public class MatrixUiController {
         public void setOut_base(String out_base) { this.out_base = out_base; }
     }
 }
-
