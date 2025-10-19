@@ -2,6 +2,8 @@ package com.example.amospringboot.web;
 
 import com.example.amospringboot.matrix.MatrixApiClient;
 import com.example.amospringboot.matrix.dto.PaymentRequest;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -24,25 +26,27 @@ import java.util.Map;
 public class PaymentUiController {
 
     private static final String CONTAINER = "matrices";
-    private static final String FALLBACK = "initial-matrix.b64";
+    private static final String FALLBACK  = "initial-matrix.b64";
 
     private final MatrixApiClient client;
+    private final ObjectMapper objectMapper;
 
-    public PaymentUiController(MatrixApiClient client) {
+    public PaymentUiController(MatrixApiClient client, ObjectMapper objectMapper) {
         this.client = client;
+        this.objectMapper = objectMapper;
     }
 
-    /** Disallow binding for authoritative fields (prevent tampering via request params). */
+    /** Prevent binding of authoritative fields (avoid client tampering). */
     @InitBinder("form")
     public void disallowClientControlledFields(WebDataBinder binder) {
-        // Disallow only the authoritative fields; allow node_b and container
-        binder.setDisallowedFields("blob_name", "node_a", "out_base");
+        // These values are always enforced server-side
+        binder.setDisallowedFields("blob_name", "node_a", "out_base", "container");
     }
 
     @GetMapping
     public String page(Model model,
-                    @AuthenticationPrincipal OidcUser oidcUser,
-                    @AuthenticationPrincipal OAuth2User oauth2User) {
+                       @AuthenticationPrincipal OidcUser oidcUser,
+                       @AuthenticationPrincipal OAuth2User oauth2User) {
 
         String upn    = resolveUpn(oidcUser, oauth2User);
         String nodeA  = localPart(upn);
@@ -52,8 +56,7 @@ public class PaymentUiController {
         form.setBlob_name(latest);
         form.setOut_base(latest);
         form.setNode_a(nodeA);
-        form.setContainer("matrices");   // hidden default
-        // node_b intentionally left null/blank so user must fill it
+        form.setContainer(CONTAINER); // visible readonly input in the page
 
         model.addAttribute("form", form);
         return "payment";
@@ -61,12 +64,13 @@ public class PaymentUiController {
 
     @PostMapping
     public String submit(@Valid @ModelAttribute("form") Form form,
-                        BindingResult errors,
-                        Model model,
-                        @AuthenticationPrincipal OidcUser oidcUser,
-                        @AuthenticationPrincipal OAuth2User oauth2User) {
+                         BindingResult errors,
+                         Model model,
+                         @AuthenticationPrincipal OidcUser oidcUser,
+                         @AuthenticationPrincipal OAuth2User oauth2User) {
 
         if (errors.hasErrors()) return "payment";
+
         if (form.getAmount() == null || form.getAmount().signum() <= 0) {
             model.addAttribute("error", "Amount must be greater than 0");
             return "payment";
@@ -80,33 +84,56 @@ public class PaymentUiController {
         String nodeA  = localPart(upn);
         String latest = safeLatest();
 
+        // Build the request with authoritative values
         PaymentRequest req = new PaymentRequest();
         req.setBlob_name(latest);
         req.setOut_base(latest);
-        req.setNode_a(nodeA);
-        req.setNode_b(form.getNode_b());      // <-- user-entered
-        req.setAmount(form.getAmount());
-        req.setContainer("matrices");         // enforce hidden default
+        req.setNode_a(nodeA);                 // authoritative (derived from user)
+        req.setNode_b(form.getNode_b());      // user input
+        req.setAmount(form.getAmount());      // BigDecimal (matches DTO)
+        req.setContainer(CONTAINER);          // authoritative
 
-        Map<String, Object> result = client.payment(req);
-        model.addAttribute("result", result);
+        Map<String, Object> result;
+        try {
+            result = client.payment(req);
+        } catch (Exception ex) {
+            // Surface transport/serialization errors to the UI
+            model.addAttribute("errorMessage", "Payment request failed: " + ex.getClass().getSimpleName());
+            model.addAttribute("resultJson", "{\"status\":\"error\",\"note\":\"client_exception\"}");
+            // re-show enforced values
+            form.setBlob_name(latest);
+            form.setOut_base(latest);
+            form.setNode_a(nodeA);
+            form.setContainer(CONTAINER);
+            model.addAttribute("form", form);
+            return "payment";
+        }
+
+        // Provide JSON for <script id="paymentResult"> in the template
+        model.addAttribute("resultJson", safeJson(result));
+
+        // Banners that your payment.html already supports
+        Object status = result.get("status");
+        if ("ok".equals(String.valueOf(status))) {
+            model.addAttribute("success", "Payment applied successfully.");
+        } else {
+            model.addAttribute("errorMessage", String.valueOf(result.getOrDefault("note", status)));
+        }
 
         // Re-show enforced values after submit
         form.setBlob_name(latest);
         form.setOut_base(latest);
         form.setNode_a(nodeA);
-        form.setContainer("matrices");
+        form.setContainer(CONTAINER);
         model.addAttribute("form", form);
 
         return "payment";
     }
 
-
     /* -------------------- helpers -------------------- */
 
     private String safeLatest() {
         try {
-            // Uses your extended MatrixApiClient
             return client.latestBlob(CONTAINER, FALLBACK);
         } catch (Exception e) {
             return FALLBACK;
@@ -116,19 +143,19 @@ public class PaymentUiController {
     private static String resolveUpn(OidcUser oidc, OAuth2User oauth2) {
         if (oidc != null) {
             String v = firstNonBlank(
-                    oidc.getClaimAsString("upn"),
-                    oidc.getClaimAsString("preferred_username"),
-                    oidc.getEmail(),
-                    oidc.getName()
+                oidc.getClaimAsString("upn"),
+                oidc.getClaimAsString("preferred_username"),
+                oidc.getEmail(),
+                oidc.getName()
             );
             if (v != null) return v;
         }
         if (oauth2 != null) {
             String v = firstNonBlank(
-                    (String) oauth2.getAttributes().get("upn"),
-                    (String) oauth2.getAttributes().get("preferred_username"),
-                    (String) oauth2.getAttributes().get("email"),
-                    oauth2.getName()
+                (String) oauth2.getAttributes().get("upn"),
+                (String) oauth2.getAttributes().get("preferred_username"),
+                (String) oauth2.getAttributes().get("email"),
+                oauth2.getName()
             );
             if (v != null) return v;
         }
@@ -149,14 +176,22 @@ public class PaymentUiController {
 
     private boolean isBlank(String s) { return s == null || s.isBlank(); }
 
+    private String safeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            return "{\"status\":\"error\",\"note\":\"serialization_failed\"}";
+        }
+    }
+
     /** Form backing bean for server-rendered page */
     public static class Form {
-        @NotBlank private String blob_name; // server-enforced
-        @NotBlank private String node_a;    // server-enforced (UPN local-part)
-        @NotBlank private String node_b;    // server-enforced ("matrices")
+        @NotBlank private String blob_name; // authoritative
+        @NotBlank private String node_a;    // authoritative (UPN local-part)
+        @NotBlank private String node_b;    // user-entered recipient
         @NotNull  private BigDecimal amount;
-        private String out_base;            // server-enforced (latest blob)
-        private String container;           // optional
+        private String out_base;            // authoritative (latest blob)
+        private String container;           // authoritative ("matrices")
 
         public String getBlob_name() { return blob_name; }
         public void setBlob_name(String blob_name) { this.blob_name = blob_name; }
