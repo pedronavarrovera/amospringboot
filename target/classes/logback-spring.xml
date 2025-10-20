@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <appender name="PAYMENT_AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>logs/payment-audit.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>logs/payment-audit.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+    <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+  </appender>
+
+  <logger name="payment.audit" level="INFO" additivity="false">
+    <appender-ref ref="PAYMENT_AUDIT_FILE"/>
+  </logger>
+
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>%d{ISO8601} %-5level [%thread] %logger - %msg%n</pattern></encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>
