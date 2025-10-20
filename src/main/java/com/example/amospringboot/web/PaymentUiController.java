@@ -26,15 +26,16 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * Handles the /payment UI form and posts payments to the matrix API.
- * Logs every confirmed payment (success/fail/exception) to payment.audit.
+ * Handles /payment UI interactions.
+ * Posts the payment to the matrix API using WebClient,
+ * and logs each confirmed payment (success/fail/exception) to payment.audit.
  */
 @Controller
 @RequestMapping("/payment")
 public class PaymentUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaymentUiController.class);
-    /** Dedicated audit logger routed to payment-audit.log via logback-spring.xml */
+    /** Dedicated audit logger, define appenders in logback-spring.xml */
     private static final Logger AUDIT = LoggerFactory.getLogger("payment.audit");
 
     private static final String VIEW = "payment";
@@ -73,7 +74,7 @@ public class PaymentUiController {
             PaymentRequest form = new PaymentRequest();
             form.setBlob_name(blob != null && !blob.isBlank() ? blob : FALLBACK_BLOB);
             form.setContainer(CONTAINER);
-            form.setNode_a(resolveCurrentUser(oidcUser, oauth2User));
+            form.setNode_a(resolveCurrentUser(oidcUser, oauth2User)); // now returns local part
             form.setOut_base(OUT_BASE);
             model.addAttribute("form", form);
         }
@@ -99,7 +100,7 @@ public class PaymentUiController {
         }
         form.setNode_a(principalId);
 
-        // --- Validation ---
+        // Validation
         if (br.hasErrors()) {
             ra.addFlashAttribute("error", "Please fix the highlighted errors and try again.");
             ra.addFlashAttribute("form", scrubForFlash(form));
@@ -119,8 +120,8 @@ public class PaymentUiController {
             return "redirect:/payment";
         }
 
-        // --- Call upstream ---
         try {
+            // Call matrix API via WebClient
             ResponseEntity<Map> resp = matrixWebClient
                     .post()
                     .uri(paymentPath)
@@ -132,7 +133,9 @@ public class PaymentUiController {
                     .onErrorResume(e -> Mono.error(new IllegalStateException("Upstream error", e)))
                     .block();
 
-            if (resp == null) throw new IllegalStateException("Upstream returned null response");
+            if (resp == null) {
+                throw new IllegalStateException("Upstream returned null response");
+            }
 
             if (!resp.getStatusCode().is2xxSuccessful()) {
                 String note = "Upstream returned " + resp.getStatusCode();
@@ -154,18 +157,23 @@ public class PaymentUiController {
                     resp.getStatusCode().value(), body);
 
         } catch (Exception ex) {
-            String msg = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            String msg = ex.getMessage() == null
+                    ? ex.getClass().getSimpleName()
+                    : ex.getMessage();
             ra.addFlashAttribute("error", "Payment failed: " + msg);
-            ra.addFlashAttribute("resultJson", "{\"status\":\"error\",\"note\":\"client_exception\"}");
+            ra.addFlashAttribute("resultJson",
+                    "{\"status\":\"error\",\"note\":\"client_exception\"}");
             ra.addFlashAttribute("form", scrubForFlash(form));
             audit("exception", correlationId, principalId, form,
-                    null, Map.of("exception", ex.getClass().getSimpleName(), "message", msg));
+                    null,
+                    Map.of("exception", ex.getClass().getSimpleName(),
+                           "message", msg));
         }
 
-        return "redirect:/payment"; // PRG
+        return "redirect:/payment";
     }
 
-    /** Write a compact JSON line to the payment.audit logger. */
+    /** Audit log: one JSON line per payment attempt */
     private void audit(String outcome,
                        String correlationId,
                        String principal,
@@ -173,26 +181,23 @@ public class PaymentUiController {
                        Integer upstreamStatus,
                        Object upstreamBody) {
         try {
-            // Extract short hints from upstream
             String resultStatus = null, resultNote = null;
             if (upstreamBody instanceof Map<?, ?> map) {
                 Object s = map.get("status"); if (s != null) resultStatus = String.valueOf(s);
                 Object n = map.get("note");   if (n != null) resultNote   = String.valueOf(n);
             }
 
-            // Build ordered map safely
             Map<String, Object> evt = new LinkedHashMap<>();
             evt.put("ts", Instant.now().toString());
             evt.put("correlationId", correlationId);
-            evt.put("outcome", outcome); // success | failure | exception | validation_error
+            evt.put("outcome", outcome);
             evt.put("principal", principal);
 
             if (form != null) {
                 safePut(evt, "nodeA", form.getNode_a());
                 safePut(evt, "nodeB", form.getNode_b());
-                if (form.getAmount() != null) {
+                if (form.getAmount() != null)
                     safePut(evt, "amount", form.getAmount().toPlainString());
-                }
                 safePut(evt, "blob", form.getBlob_name());
                 safePut(evt, "container", form.getContainer());
                 safePut(evt, "outBase", form.getOut_base());
@@ -221,26 +226,44 @@ public class PaymentUiController {
         return s == null ? "" : s.replace("\"", "\\\"");
     }
 
+    /**
+     * Prefer preferred_username/email, then strip domain part (everything after '@').
+     * Falls back to name/subject; returns "unknown-user" if none available.
+     */
     private String resolveCurrentUser(OidcUser oidc, OAuth2User oauth2) {
+        String raw = null;
+
         if (oidc != null) {
-            String email = oidc.getEmail();
-            if (email != null && !email.isBlank()) return email;
             Object preferred = oidc.getClaims().get("preferred_username");
-            if (preferred instanceof String s && !s.isBlank()) return s;
-            String name = oidc.getFullName();
-            if (name != null && !name.isBlank()) return name;
-            String sub = oidc.getSubject();
-            if (sub != null && !sub.isBlank()) return sub;
+            if (preferred instanceof String s && !s.isBlank()) raw = s;
+            else if (oidc.getEmail() != null && !oidc.getEmail().isBlank()) raw = oidc.getEmail();
+            else if (oidc.getFullName() != null && !oidc.getFullName().isBlank()) raw = oidc.getFullName();
+            else if (oidc.getSubject() != null && !oidc.getSubject().isBlank()) raw = oidc.getSubject();
         }
-        if (oauth2 != null) {
-            Object email = oauth2.getAttributes().get("email");
-            if (email instanceof String s && !s.isBlank()) return s;
+
+        if ((raw == null || raw.isBlank()) && oauth2 != null) {
             Object preferred = oauth2.getAttributes().get("preferred_username");
-            if (preferred instanceof String s && !s.isBlank()) return s;
-            Object name = oauth2.getAttributes().get("name");
-            if (name instanceof String s && !s.isBlank()) return s;
+            if (preferred instanceof String s && !s.isBlank()) raw = s;
+            else {
+                Object email = oauth2.getAttributes().get("email");
+                if (email instanceof String s && !s.isBlank()) raw = s;
+                else {
+                    Object name = oauth2.getAttributes().get("name");
+                    if (name instanceof String s && !s.isBlank()) raw = s;
+                }
+            }
         }
-        return "unknown-user";
+
+        if (raw == null || raw.isBlank()) {
+            return "unknown-user";
+        }
+
+        // Strip domain after '@' to get local part (e.g., "amo" from "amo@tenant.onmicrosoft.com")
+        int at = raw.indexOf('@');
+        if (at > 0) {
+            raw = raw.substring(0, at);
+        }
+        return raw.trim();
     }
 
     private PaymentRequest scrubForFlash(PaymentRequest form) {
