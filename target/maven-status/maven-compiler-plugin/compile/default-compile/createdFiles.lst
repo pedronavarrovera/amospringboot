@@ -13,4 +13,3 @@ com\example\amospringboot\AmospringbootApplication.class
 com\example\amospringboot\SecurityConfig.class
 com\example\amospringboot\matrix\dto\CycleFindRequest.class
 com\example\amospringboot\web\MatrixUiController$CycleFindForm.class
-com\example\amospringboot\web\PaymentUiController$Form.class
