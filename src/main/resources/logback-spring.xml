@@ -1,23 +1,70 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<configuration>
-  <appender name="PAYMENT_AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+<configuration scan="true">
+
+  <!-- ========== GLOBAL PATTERNS ========== -->
+  <property name="APP_PATTERN"
+            value="%d{ISO8601} %-5level [%thread] %logger - %msg%n"/>
+
+  <!-- ===================================== -->
+  <!--   Standard Console Output (stdout)    -->
+  <!-- ===================================== -->
+  <appender name="STDOUT"
+            class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>${APP_PATTERN}</pattern>
+    </encoder>
+  </appender>
+
+  <!-- ===================================== -->
+  <!--   Rolling JSON file for audit trail   -->
+  <!-- ===================================== -->
+  <appender name="PAYMENT_AUDIT_FILE"
+            class="ch.qos.logback.core.rolling.RollingFileAppender">
     <file>logs/payment-audit.log</file>
+
     <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <!-- One file per day, compress older logs -->
       <fileNamePattern>logs/payment-audit.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
       <maxHistory>30</maxHistory>
     </rollingPolicy>
-    <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+
+    <!-- Use JSON encoder for structured audit logs -->
+    <encoder class="net.logstash.logback.encoder.LogstashEncoder" />
   </appender>
 
+  <!-- ===================================== -->
+  <!--   Application Console Rolling Log     -->
+  <!-- ===================================== -->
+  <appender name="APP_FILE"
+            class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>logs/application.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>logs/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+      <maxHistory>14</maxHistory>
+    </rollingPolicy>
+    <encoder>
+      <pattern>${APP_PATTERN}</pattern>
+    </encoder>
+  </appender>
+
+  <!-- ===================================== -->
+  <!--  AUDIT LOGGER (mirrors to STDOUT)     -->
+  <!-- ===================================== -->
+  <!-- This sends payment.audit messages to both:
+       1) payment-audit.log (structured JSON)
+       2) STDOUT (so DigitalOcean collects them)
+  -->
   <logger name="payment.audit" level="INFO" additivity="false">
-    <appender-ref ref="PAYMENT_AUDIT_FILE"/>
+    <appender-ref ref="PAYMENT_AUDIT_FILE" />
+    <appender-ref ref="STDOUT" />  <!-- Mirror audit logs to console -->
   </logger>
 
-  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-    <encoder><pattern>%d{ISO8601} %-5level [%thread] %logger - %msg%n</pattern></encoder>
-  </appender>
-
+  <!-- ===================================== -->
+  <!--  DEFAULT ROOT LOGGER (application)    -->
+  <!-- ===================================== -->
   <root level="INFO">
-    <appender-ref ref="STDOUT"/>
+    <appender-ref ref="STDOUT" />
+    <appender-ref ref="APP_FILE" />
   </root>
 </configuration>
+
