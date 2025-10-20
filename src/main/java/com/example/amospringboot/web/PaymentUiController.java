@@ -5,11 +5,9 @@ import com.example.amospringboot.matrix.dto.PaymentRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import org.springframework.security.core.Authentication;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
@@ -17,193 +15,159 @@ import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Objects;
 
 @Controller
 @RequestMapping("/payment")
+@RequiredArgsConstructor
 public class PaymentUiController {
 
+    private static final String VIEW = "payment";
     private static final String CONTAINER = "matrices";
-    private static final String FALLBACK  = "initial-matrix.b64";
+    private static final String FALLBACK_BLOB = "initial-matrix.b64";
+    private static final String OUT_BASE = "payment-update";
 
     private final MatrixApiClient client;
     private final ObjectMapper objectMapper;
 
-    public PaymentUiController(MatrixApiClient client, ObjectMapper objectMapper) {
-        this.client = client;
-        this.objectMapper = objectMapper;
-    }
-
-    /** Prevent binding of authoritative fields (avoid client tampering). */
+    /**
+     * Prevent client-side tampering of authoritative fields (readonly in the UI).
+     */
     @InitBinder("form")
-    public void disallowClientControlledFields(WebDataBinder binder) {
-        // These values are always enforced server-side
-        binder.setDisallowedFields("blob_name", "node_a", "out_base", "container");
+    void initBinder(WebDataBinder binder) {
+        binder.setDisallowedFields("node_a", "container", "blob_name", "out_base");
     }
 
     @GetMapping
-    public String page(Model model,
-                       @AuthenticationPrincipal OidcUser oidcUser,
-                       @AuthenticationPrincipal OAuth2User oauth2User) {
-
-        String upn    = resolveUpn(oidcUser, oauth2User);
-        String nodeA  = localPart(upn);
-        String latest = safeLatest();
-
-        Form form = new Form();
-        form.setBlob_name(latest);
-        form.setOut_base(latest);
-        form.setNode_a(nodeA);
-        form.setContainer(CONTAINER); // visible readonly input in the page
-
-        model.addAttribute("form", form);
-        return "payment";
+    public String page(
+            @RequestParam(value = "blob", required = false) String blob,
+            Model model,
+            @AuthenticationPrincipal OidcUser oidcUser,
+            @AuthenticationPrincipal OAuth2User oauth2User
+    ) {
+        // If flash already provided "form", reuse it; otherwise build defaults
+        if (!model.containsAttribute("form")) {
+            PaymentRequest form = new PaymentRequest();
+            form.setBlob_name(blob != null && !blob.isBlank() ? blob : FALLBACK_BLOB);
+            form.setContainer(CONTAINER);
+            form.setNode_a(resolveCurrentUser(oidcUser, oauth2User));
+            form.setOut_base(OUT_BASE);
+            // Leave node_b and amount empty for user input
+            model.addAttribute("form", form);
+        }
+        return VIEW;
     }
 
     @PostMapping
-    public String submit(@Valid @ModelAttribute("form") Form form,
-                         BindingResult errors,
-                         Model model,
-                         @AuthenticationPrincipal OidcUser oidcUser,
-                         @AuthenticationPrincipal OAuth2User oauth2User) {
-
-        if (errors.hasErrors()) return "payment";
-
-        if (form.getAmount() == null || form.getAmount().signum() <= 0) {
-            model.addAttribute("error", "Amount must be greater than 0");
-            return "payment";
-        }
-        if (isBlank(form.getNode_b())) {
-            model.addAttribute("error", "Node B is required");
-            return "payment";
-        }
-
-        String upn    = resolveUpn(oidcUser, oauth2User);
-        String nodeA  = localPart(upn);
-        String latest = safeLatest();
-
-        // Build the request with authoritative values
-        PaymentRequest req = new PaymentRequest();
-        req.setBlob_name(latest);
-        req.setOut_base(latest);
-        req.setNode_a(nodeA);                 // authoritative (derived from user)
-        req.setNode_b(form.getNode_b());      // user input
-        req.setAmount(form.getAmount());      // BigDecimal (matches DTO)
-        req.setContainer(CONTAINER);          // authoritative
-
-        Map<String, Object> result;
-        try {
-            result = client.payment(req);
-        } catch (Exception ex) {
-            // Surface transport/serialization errors to the UI
-            model.addAttribute("errorMessage", "Payment request failed: " + ex.getClass().getSimpleName());
-            model.addAttribute("resultJson", "{\"status\":\"error\",\"note\":\"client_exception\"}");
-            // re-show enforced values
-            form.setBlob_name(latest);
-            form.setOut_base(latest);
-            form.setNode_a(nodeA);
-            form.setContainer(CONTAINER);
-            model.addAttribute("form", form);
-            return "payment";
-        }
-
-        // Provide JSON for <script id="paymentResult"> in the template
-        model.addAttribute("resultJson", safeJson(result));
-
-        // Banners that your payment.html already supports
-        Object status = result.get("status");
-        if ("ok".equals(String.valueOf(status))) {
-            model.addAttribute("success", "Payment applied successfully.");
-        } else {
-            model.addAttribute("errorMessage", String.valueOf(result.getOrDefault("note", status)));
-        }
-
-        // Re-show enforced values after submit
-        form.setBlob_name(latest);
-        form.setOut_base(latest);
-        form.setNode_a(nodeA);
+    public String submit(
+            @Valid @ModelAttribute("form") PaymentRequest form,
+            BindingResult br,
+            RedirectAttributes ra,
+            @AuthenticationPrincipal OidcUser oidcUser,
+            @AuthenticationPrincipal OAuth2User oauth2User
+    ) {
+        // Reassert authoritative server-side values (ignore anything posted for these fields)
         form.setContainer(CONTAINER);
-        model.addAttribute("form", form);
-
-        return "payment";
-    }
-
-    /* -------------------- helpers -------------------- */
-
-    private String safeLatest() {
-        try {
-            return client.latestBlob(CONTAINER, FALLBACK);
-        } catch (Exception e) {
-            return FALLBACK;
+        form.setOut_base(OUT_BASE);
+        if (form.getBlob_name() == null || form.getBlob_name().isBlank()) {
+            form.setBlob_name(FALLBACK_BLOB);
         }
+        form.setNode_a(resolveCurrentUser(oidcUser, oauth2User));
+
+        // Validation
+        if (br.hasErrors()) {
+            ra.addFlashAttribute("error", "Please fix the highlighted errors and try again.");
+            ra.addFlashAttribute("form", scrubForFlash(form));
+            return "redirect:/payment";
+        }
+        if (form.getNode_b() == null || form.getNode_b().isBlank()) {
+            ra.addFlashAttribute("error", "Node B is required.");
+            ra.addFlashAttribute("form", scrubForFlash(form));
+            return "redirect:/payment";
+        }
+        if (form.getAmount() == null || form.getAmount().compareTo(new BigDecimal("0.00")) <= 0) {
+            ra.addFlashAttribute("error", "Amount must be greater than 0.");
+            ra.addFlashAttribute("form", scrubForFlash(form));
+            return "redirect:/payment";
+        }
+
+        try {
+            // Call downstream service
+            // Adjust the return type to whatever your client uses (e.g., Map<String,Object>, ResponseEntity<...>, etc.)
+            Object result = invokePayment(form);
+
+            // Serialize result as JSON string for the template's <script type="application/json">
+            String json = objectMapper.writeValueAsString(result);
+            ra.addFlashAttribute("success", "Payment submitted successfully.");
+            ra.addFlashAttribute("resultJson", json);
+
+        } catch (Exception ex) {
+            ra.addFlashAttribute("error", "Payment failed: " + ex.getMessage());
+            // Include a small machine-readable note as well
+            ra.addFlashAttribute("resultJson", "{\"status\":\"error\",\"note\":\"client_exception\"}");
+            ra.addFlashAttribute("form", scrubForFlash(form));
+        }
+
+        // PRG pattern
+        return "redirect:/payment";
     }
 
-    private static String resolveUpn(OidcUser oidc, OAuth2User oauth2) {
+    /**
+     * Centralize how we call the Matrix API client so you can adapt it to your client signature.
+     */
+    private Object invokePayment(PaymentRequest form) {
+        // Example 1: client returns a Map payload directly
+        // return client.applyPayment(form);
+
+        // Example 2: client returns ResponseEntity<Map<String, Object>>
+        ResponseEntity<Map<String, Object>> resp = client.applyPayment(form);
+        if (!resp.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("Upstream returned " + resp.getStatusCode());
+        }
+        return Objects.requireNonNullElse(resp.getBody(), Map.of("status", "ok"));
+    }
+
+    /**
+     * Derive a stable identifier for Node A from the authenticated principal.
+     */
+    private String resolveCurrentUser(OidcUser oidc, OAuth2User oauth2) {
         if (oidc != null) {
-            String v = firstNonBlank(
-                oidc.getClaimAsString("upn"),
-                oidc.getClaimAsString("preferred_username"),
-                oidc.getEmail(),
-                oidc.getName()
-            );
-            if (v != null) return v;
+            // prefer email, fall back to name/preferred_username/sub
+            String email = oidc.getEmail();
+            if (email != null && !email.isBlank()) return email;
+            Object preferred = oidc.getClaims().get("preferred_username");
+            if (preferred instanceof String s && !s.isBlank()) return s;
+            String name = oidc.getFullName();
+            if (name != null && !name.isBlank()) return name;
+            String sub = oidc.getSubject();
+            if (sub != null && !sub.isBlank()) return sub;
         }
         if (oauth2 != null) {
-            String v = firstNonBlank(
-                (String) oauth2.getAttributes().get("upn"),
-                (String) oauth2.getAttributes().get("preferred_username"),
-                (String) oauth2.getAttributes().get("email"),
-                oauth2.getName()
-            );
-            if (v != null) return v;
+            Object email = oauth2.getAttributes().get("email");
+            if (email instanceof String s && !s.isBlank()) return s;
+            Object preferred = oauth2.getAttributes().get("preferred_username");
+            if (preferred instanceof String s && !s.isBlank()) return s;
+            Object name = oauth2.getAttributes().get("name");
+            if (name instanceof String s && !s.isBlank()) return s;
         }
-        Authentication a = SecurityContextHolder.getContext().getAuthentication();
-        return a != null ? a.getName() : "unknown";
+        return "unknown-user";
     }
 
-    private static String localPart(String s) {
-        if (s == null) return "unknown";
-        int at = s.indexOf('@');
-        return at > 0 ? s.substring(0, at) : s;
-    }
-
-    private static String firstNonBlank(String... vals) {
-        for (String v : vals) if (v != null && !v.isBlank()) return v;
-        return null;
-    }
-
-    private boolean isBlank(String s) { return s == null || s.isBlank(); }
-
-    private String safeJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
-            return "{\"status\":\"error\",\"note\":\"serialization_failed\"}";
-        }
-    }
-
-    /** Form backing bean for server-rendered page */
-    public static class Form {
-        @NotBlank private String blob_name; // authoritative
-        @NotBlank private String node_a;    // authoritative (UPN local-part)
-        @NotBlank private String node_b;    // user-entered recipient
-        @NotNull  private BigDecimal amount;
-        private String out_base;            // authoritative (latest blob)
-        private String container;           // authoritative ("matrices")
-
-        public String getBlob_name() { return blob_name; }
-        public void setBlob_name(String blob_name) { this.blob_name = blob_name; }
-        public String getNode_a() { return node_a; }
-        public void setNode_a(String node_a) { this.node_a = node_a; }
-        public String getNode_b() { return node_b; }
-        public void setNode_b(String node_b) { this.node_b = node_b; }
-        public BigDecimal getAmount() { return amount; }
-        public void setAmount(BigDecimal amount) { this.amount = amount; }
-        public String getOut_base() { return out_base; }
-        public void setOut_base(String out_base) { this.out_base = out_base; }
-        public String getContainer() { return container; }
-        public void setContainer(String container) { this.container = container; }
+    /**
+     * Remove/neutralize fields we reassert anyway, to avoid surprising echoes after redirect.
+     */
+    private PaymentRequest scrubForFlash(PaymentRequest form) {
+        PaymentRequest copy = new PaymentRequest();
+        copy.setBlob_name(form.getBlob_name()); // keep visible context
+        copy.setContainer(CONTAINER);           // visible but server-controlled
+        copy.setNode_a(form.getNode_a());       // visible but server-controlled
+        copy.setOut_base(OUT_BASE);             // visible but server-controlled
+        copy.setNode_b(form.getNode_b());       // user input
+        copy.setAmount(form.getAmount());       // user input
+        return copy;
     }
 }

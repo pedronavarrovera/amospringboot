@@ -69,7 +69,7 @@
     <!-- Header -->
     <div class="header">
       <div class="brand">
-        <img th:src="@{/images/amo-logo.png}" alt="@MO Logo" class="brand-logo" />
+        <img th:src="@{/images/amo-logo.png}" alt="AMO Logo" class="brand-logo" />
         <span>Payments</span>
       </div>
       <form th:action="@{/logout}" method="post">
@@ -105,7 +105,7 @@
           </div>
           <div class="field">
             <label>Amount * (decimal)</label>
-            <input th:field="*{amount}" type="number" step="1" min="1" placeholder="100" required />
+            <input th:field="*{amount}" type="number" step="0.01" min="0.01" placeholder="100.00" inputmode="decimal" required />
           </div>
         </div>
 
@@ -127,14 +127,15 @@
       </form>
     </main>
 
-    <!-- Success / Error banners (populated by server via model attrs) -->
+    <!-- Success / Error banners (populated via flash attrs) -->
     <div th:if="${success}" class="banner banner-success" th:text="${success}"></div>
-    <div th:if="${errorMessage}" class="banner banner-error" th:text="${errorMessage}"></div>
+    <div th:if="${error}" class="banner banner-error" th:text="${error}"></div>
 
     <!-- Result (renders if controller provides resultJson) -->
     <section class="card" th:if="${resultJson}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
-      <script type="application/json" id="paymentResult" th:utext="${resultJson}">{}</script>
+      <!-- safer: escape JSON content -->
+      <script type="application/json" id="paymentResult" th:text="${resultJson}">{}</script>
       <pre class="code" id="resultJson">Loading…</pre>
     </section>
   </div>
@@ -170,12 +171,14 @@
     const modalOverlay = document.getElementById('confirmModal');
     const yesBtn       = document.getElementById('confirmYes');
     const noBtn        = document.getElementById('confirmNo');
+    const submitBtn    = document.getElementById('submitBtn');
 
     const sum = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? ''; };
     const val = (name) => form.querySelector(`[name="${name}"]`)?.value || '';
 
+    let lastFocus = null;
+
     form.addEventListener('submit', (e) => {
-      // show modal instead of submitting immediately
       e.preventDefault();
 
       sum('sumBlob',      val('blob_name'));
@@ -185,19 +188,37 @@
       sum('sumAmount',    val('amount'));
       sum('sumOutBase',   val('out_base'));
 
+      lastFocus = document.activeElement;
       modalOverlay.style.display = 'flex';
       modalOverlay.setAttribute('aria-hidden', 'false');
+      yesBtn.focus();
     });
+
+    function closeModal() {
+      modalOverlay.style.display = 'none';
+      modalOverlay.setAttribute('aria-hidden', 'true');
+      if (lastFocus) lastFocus.focus();
+    }
 
     yesBtn.addEventListener('click', () => {
-      modalOverlay.style.display = 'none';
-      modalOverlay.setAttribute('aria-hidden', 'true');
-      form.submit();
+      // Run native HTML5 validation; if invalid, close modal so browser can focus the broken field
+      if (!form.reportValidity()) {
+        closeModal();
+        return;
+      }
+      closeModal();
+      // Trigger a proper submit (keeps constraint validation + submit events)
+      form.requestSubmit();
     });
 
-    noBtn.addEventListener('click', () => {
-      modalOverlay.style.display = 'none';
-      modalOverlay.setAttribute('aria-hidden', 'true');
+    noBtn.addEventListener('click', closeModal);
+
+    // Close with Esc when modal open
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modalOverlay.getAttribute('aria-hidden') === 'false') {
+        e.preventDefault();
+        closeModal();
+      }
     });
 
     // Pretty-print result JSON if present
