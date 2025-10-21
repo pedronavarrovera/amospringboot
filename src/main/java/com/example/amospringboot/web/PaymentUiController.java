@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,12 +26,16 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Controller
 @RequestMapping("/payment")
 public class PaymentUiController {
 
-    private static final Logger LOG = LoggerFactory.getLogger(PaymentUiController.class);
+    private static final Logger LOG   = LoggerFactory.getLogger(PaymentUiController.class);
+    /** Matches <logger name="payment.audit"> in logback-spring.xml */
+    private static final Logger AUDIT = LoggerFactory.getLogger("payment.audit");
 
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK  = "initial-matrix.b64";
@@ -60,9 +65,7 @@ public class PaymentUiController {
         if (!model.containsAttribute("form")) {
             PaymentForm form = new PaymentForm();
 
-            String latest = (blob != null && !blob.isBlank())
-                    ? blob
-                    : safeLatest();
+            String latest = (blob != null && !blob.isBlank()) ? blob : safeLatest();
 
             form.setBlob_name(latest);                 // authoritative
             form.setOut_base(latest);                  // authoritative (equals blob_name)
@@ -74,20 +77,23 @@ public class PaymentUiController {
         return VIEW;
     }
 
-    /** POST /payment — enforce authoritative fields, validate user inputs, call API, render same view. */
+    /** POST /payment — log attempt + result with a traceId; no deprecated APIs used. */
     @PostMapping
-    public String submit(@Valid @ModelAttribute("form") PaymentForm form, // only user fields are validated
+    public String submit(@Valid @ModelAttribute("form") PaymentForm form,
                          BindingResult br,
                          Model model,
                          @AuthenticationPrincipal OidcUser oidcUser,
                          @AuthenticationPrincipal OAuth2User oauth2User) {
+
+        final String traceId = UUID.randomUUID().toString();
+        MDC.put("traceId", traceId);
 
         // Re-enforce authoritative values regardless of client input
         String latest = safeLatest();
         String nodeA  = localPart(resolveUpn(oidcUser, oauth2User));
 
         form.setBlob_name(latest);
-        form.setOut_base(latest);          // MUST equal blob_name
+        form.setOut_base(latest);          // MUST equal blob_name (per current contract)
         form.setContainer(CONTAINER);
         form.setNode_a(nodeA);
 
@@ -95,6 +101,13 @@ public class PaymentUiController {
         if (br.hasErrors()) {
             model.addAttribute("error", "Please fix the highlighted errors and try again.");
             model.addAttribute("form", form);
+            LOG.info("PAYMENT_FAILURE traceId={} reason=validation container={} blob={} out={} node_a={} node_b={} amount={} errors={}",
+                    traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount(), br.getErrorCount());
+            AUDIT.info("PAYMENT_FAILURE traceId={} reason=validation container={} blob={} out={} node_a={} node_b={} amount={}",
+                    traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount());
+            MDC.clear();
             return VIEW;
         }
 
@@ -102,33 +115,78 @@ public class PaymentUiController {
         if (!isPositiveInteger(form.getAmount())) {
             model.addAttribute("error", "Amount must be a positive integer (no decimals).");
             model.addAttribute("form", form);
+            LOG.info("PAYMENT_FAILURE traceId={} reason=nonIntegerAmount container={} blob={} out={} node_a={} node_b={} amount={}",
+                    traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount());
+            AUDIT.info("PAYMENT_FAILURE traceId={} reason=nonIntegerAmount container={} blob={} out={} node_a={} node_b={} amount={}",
+                    traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount());
+            MDC.clear();
             return VIEW;
         }
 
+        long durationMs = 0L;
         try {
-            // Map to DTO with strict constraints (already fixed in your PaymentRequest)
             PaymentRequest req = new PaymentRequest();
             req.setBlob_name(form.getBlob_name());
-            req.setOut_base(form.getOut_base());     // equals blob_name
+            req.setOut_base(form.getOut_base());
             req.setContainer(form.getContainer());
             req.setNode_a(form.getNode_a());
             req.setNode_b(form.getNode_b());
             req.setAmount(form.getAmount());
 
+            LOG.info("PAYMENT_ATTEMPT traceId={} container={} blob={} out={} node_a={} node_b={} amount={}",
+                    traceId, req.getContainer(), req.getBlob_name(), req.getOut_base(),
+                    safe(req.getNode_a()), safe(req.getNode_b()), req.getAmount());
+            AUDIT.info("PAYMENT_ATTEMPT traceId={} container={} blob={} out={} node_a={} node_b={} amount={}",
+                    traceId, req.getContainer(), req.getBlob_name(), req.getOut_base(),
+                    safe(req.getNode_a()), safe(req.getNode_b()), req.getAmount());
+
+            long t0 = System.nanoTime();
             Map<String, Object> result = client.applyPayment(req);
+            durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+
+            String resultJson = toJson(result);
+            String status = String.valueOf(result.getOrDefault("status", "unknown"));
+            String writtenBlob = String.valueOf(result.getOrDefault("written_blob", ""));
+
+            // SUCCESS — include all key data + status/written_blob
+            LOG.info("PAYMENT_SUCCESS traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} amount={} status={} written_blob={} result={}",
+                    traceId, durationMs,
+                    req.getContainer(), req.getBlob_name(), req.getOut_base(),
+                    safe(req.getNode_a()), safe(req.getNode_b()), req.getAmount(),
+                    status, writtenBlob, truncate(resultJson, 4000));
+            AUDIT.info("PAYMENT_SUCCESS traceId={} container={} blob={} out={} node_a={} node_b={} amount={} status={} written_blob={}",
+                    traceId, req.getContainer(), req.getBlob_name(), req.getOut_base(),
+                    safe(req.getNode_a()), safe(req.getNode_b()), req.getAmount(),
+                    status, writtenBlob);
+
             model.addAttribute("success", "Payment submitted.");
             model.addAttribute("result", result);
-            model.addAttribute("resultJson", toJson(result));
+            model.addAttribute("resultJson", resultJson);
         } catch (Exception e) {
-            LOG.warn("Payment failed: {}", e.toString());
-            model.addAttribute("error", "Payment failed: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+            String msg = (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            // FAILURE — include all key data
+            LOG.warn("PAYMENT_FAILURE traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} amount={} error={} class={}",
+                    traceId, durationMs,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount(),
+                    truncate(msg, 2000), e.getClass().getName(), e);
+            AUDIT.info("PAYMENT_FAILURE traceId={} container={} blob={} out={} node_a={} node_b={} amount={} error={}",
+                    traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount(),
+                    truncate(msg, 1000));
+
+            model.addAttribute("error", "Payment failed: " + msg);
+        } finally {
+            MDC.clear();
         }
 
         model.addAttribute("form", form);
         return VIEW;
     }
 
-    // ===== helpers (mirroring MatrixUiController style) =====
+    // ===== helpers =====
 
     private String safeLatest() {
         try {
@@ -186,6 +244,17 @@ public class PaymentUiController {
         }
     }
 
+    /** Avoid logging full UPN; we already use local part. Keep simple for logs. */
+    private static String safe(String s) {
+        return s == null ? "null" : s;
+    }
+
+    /** Keep logs bounded to prevent huge payloads. */
+    private static String truncate(String s, int max) {
+        if (s == null) return null;
+        return (s.length() <= max) ? s : s.substring(0, max) + "...(truncated)";
+    }
+
     // ---- UI form class: VALIDATE ONLY USER INPUTS ----
     public static class PaymentForm {
         // authoritative fields (no bean validation here; they’re reasserted server-side)
@@ -219,3 +288,4 @@ public class PaymentUiController {
         public void setAmount(BigDecimal amount) { this.amount = amount; }
     }
 }
+

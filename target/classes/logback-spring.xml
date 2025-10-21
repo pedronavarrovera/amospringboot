@@ -1,52 +1,65 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration scan="true">
 
-  <!-- ========= Console pattern ========= -->
+  <!-- ========= Properties ========= -->
+  <property name="LOG_DIR" value="logs"/>
   <property name="APP_PATTERN" value="%d{ISO8601} %-5level [%thread] %logger - %msg%n"/>
 
-  <!-- ===== Console (goes to DO Logs) ===== -->
+  <!-- ===== Console (DigitalOcean captures this) ===== -->
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
       <pattern>${APP_PATTERN}</pattern>
     </encoder>
   </appender>
 
-  <!-- ===== Application rolling file (optional) ===== -->
+  <!-- ===== Application rolling file ===== -->
   <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-    <file>logs/application.log</file>
+    <file>${LOG_DIR}/application.log</file>
     <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-      <fileNamePattern>logs/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+      <fileNamePattern>${LOG_DIR}/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
       <maxHistory>14</maxHistory>
+      <!-- Optional: cap total size -->
+      <!-- <totalSizeCap>1GB</totalSizeCap> -->
     </rollingPolicy>
     <encoder>
       <pattern>${APP_PATTERN}</pattern>
     </encoder>
   </appender>
 
-  <!-- ===== Payment audit rolling file (NO external encoder) ===== -->
-  <!-- Our controller already writes JSON strings for audit; so just emit %msg -->
+  <!-- ===== Payment audit rolling file ===== -->
+  <!-- If your controller emits JSON in %msg, keep this simple so JSON stays intact.
+       We still prefix a timestamp to help grep’ing. -->
   <appender name="PAYMENT_AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-    <file>logs/payment-audit.log</file>
+    <file>${LOG_DIR}/payment-audit.log</file>
     <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-      <fileNamePattern>logs/payment-audit.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+      <fileNamePattern>${LOG_DIR}/payment-audit.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
       <maxHistory>30</maxHistory>
     </rollingPolicy>
     <encoder>
-      <!-- write exactly the message (which is JSON from the controller) -->
-      <pattern>%msg%n</pattern>
+      <!-- Keep JSON as-is in %msg; prepend timestamp and level outside JSON -->
+      <pattern>%d{ISO8601} | %-5level | %msg%n</pattern>
+      <!-- If you want EXACT JSON only, change to: <pattern>%msg%n</pattern> -->
     </encoder>
   </appender>
-
-  <!-- ===== payment.audit logger (mirror to console for DO + write to file) ===== -->
-  <logger name="payment.audit" level="INFO" additivity="false">
-    <appender-ref ref="PAYMENT_AUDIT_FILE"/>
-    <appender-ref ref="STDOUT"/>
-  </logger>
 
   <!-- ===== Root logger ===== -->
   <root level="INFO">
     <appender-ref ref="STDOUT"/>
     <appender-ref ref="APP_FILE"/>
   </root>
+
+  <!-- ===== Payment audit loggers ===== -->
+  <!-- 1) Named audit logger you can use explicitly: LoggerFactory.getLogger("payment.audit") -->
+  <logger name="payment.audit" level="INFO" additivity="false">
+    <appender-ref ref="STDOUT"/>
+    <appender-ref ref="PAYMENT_AUDIT_FILE"/>
+  </logger>
+
+  <!-- 2) Also capture the controller's class logs into the audit file (plus console) -->
+  <logger name="com.example.amospringboot.web.PaymentUiController" level="INFO" additivity="false">
+    <appender-ref ref="STDOUT"/>
+    <appender-ref ref="PAYMENT_AUDIT_FILE"/>
+  </logger>
+
 </configuration>
 
