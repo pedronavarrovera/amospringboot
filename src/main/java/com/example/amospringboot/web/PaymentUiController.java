@@ -26,35 +26,37 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * Handles /payment UI interactions.
- * Posts the payment to the matrix API using WebClient,
- * and logs each confirmed payment (success/fail/exception) to payment.audit.
+ * /payment UI: out_base MUST always equal blob_name.
+ * Amount MUST be a positive integer (>0), never decimal.
  */
 @Controller
 @RequestMapping("/payment")
 public class PaymentUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaymentUiController.class);
-    /** Dedicated audit logger, define appenders in logback-spring.xml */
     private static final Logger AUDIT = LoggerFactory.getLogger("payment.audit");
 
     private static final String VIEW = "payment";
-    private static final String CONTAINER = "matrices";
     private static final String FALLBACK_BLOB = "initial-matrix.b64";
-    private static final String OUT_BASE = "payment-update";
 
     private final WebClient matrixWebClient;
     private final ObjectMapper objectMapper;
     private final String paymentPath;
+    private final String blobsPath;
+    private final String container;
 
     public PaymentUiController(
             WebClient matrixWebClient,
             ObjectMapper objectMapper,
-            @Value("${matrix.api.payment-path:/payment}") String paymentPath
+            @Value("${matrix.api.payment-path:/payment}") String paymentPath,
+            @Value("${matrix.api.blobs-path:/blobs}") String blobsPath,
+            @Value("${matrix.container:matrices}") String container
     ) {
         this.matrixWebClient = matrixWebClient;
         this.objectMapper = objectMapper;
         this.paymentPath = paymentPath;
+        this.blobsPath = blobsPath;
+        this.container = container;
     }
 
     /** Prevent tampering of authoritative fields (readonly in UI). */
@@ -72,10 +74,21 @@ public class PaymentUiController {
     ) {
         if (!model.containsAttribute("form")) {
             PaymentRequest form = new PaymentRequest();
-            form.setBlob_name(blob != null && !blob.isBlank() ? blob : FALLBACK_BLOB);
-            form.setContainer(CONTAINER);
-            form.setNode_a(resolveCurrentUser(oidcUser, oauth2User)); // now returns local part
-            form.setOut_base(OUT_BASE);
+
+            form.setContainer(container);
+
+            // Pick blob: ?blob=… > latest > fallback
+            String chosenBlob = (blob != null && !blob.isBlank())
+                    ? blob
+                    : getLatestBlobName().orElse(FALLBACK_BLOB);
+            form.setBlob_name(chosenBlob);
+
+            // out_base mirrors blob_name
+            form.setOut_base(chosenBlob);
+
+            // node A = local-part of current user
+            form.setNode_a(resolveCurrentUser(oidcUser, oauth2User));
+
             model.addAttribute("form", form);
         }
         return VIEW;
@@ -92,29 +105,33 @@ public class PaymentUiController {
         final String correlationId = UUID.randomUUID().toString();
         final String principalId = resolveCurrentUser(oidcUser, oauth2User);
 
-        // Reassert authoritative fields
-        form.setContainer(CONTAINER);
-        form.setOut_base(OUT_BASE);
+        // Reassert authoritative fields server-side
+        form.setContainer(container);
         if (form.getBlob_name() == null || form.getBlob_name().isBlank()) {
-            form.setBlob_name(FALLBACK_BLOB);
+            form.setBlob_name(getLatestBlobName().orElse(FALLBACK_BLOB));
         }
+        form.setOut_base(form.getBlob_name()); // ALWAYS equal
         form.setNode_a(principalId);
 
-        // Validation
+        // Jakarta validation errors?
         if (br.hasErrors()) {
             ra.addFlashAttribute("error", "Please fix the highlighted errors and try again.");
             ra.addFlashAttribute("form", scrubForFlash(form));
             audit("validation_error", correlationId, principalId, form, null, null);
             return "redirect:/payment";
         }
-        if (form.getNode_b() == null || form.getNode_b().isBlank()) {
-            ra.addFlashAttribute("error", "Node B is required.");
+
+        // Custom amount validation: positive integer only
+        if (!isPositiveInteger(form.getAmount())) {
+            ra.addFlashAttribute("error", "Amount must be a positive integer (no decimals).");
             ra.addFlashAttribute("form", scrubForFlash(form));
             audit("validation_error", correlationId, principalId, form, null, null);
             return "redirect:/payment";
         }
-        if (form.getAmount() == null || form.getAmount().compareTo(new BigDecimal("0.00")) <= 0) {
-            ra.addFlashAttribute("error", "Amount must be greater than 0.");
+
+        // Node B required
+        if (form.getNode_b() == null || form.getNode_b().isBlank()) {
+            ra.addFlashAttribute("error", "Node B is required.");
             ra.addFlashAttribute("form", scrubForFlash(form));
             audit("validation_error", correlationId, principalId, form, null, null);
             return "redirect:/payment";
@@ -133,9 +150,7 @@ public class PaymentUiController {
                     .onErrorResume(e -> Mono.error(new IllegalStateException("Upstream error", e)))
                     .block();
 
-            if (resp == null) {
-                throw new IllegalStateException("Upstream returned null response");
-            }
+            if (resp == null) throw new IllegalStateException("Upstream returned null response");
 
             if (!resp.getStatusCode().is2xxSuccessful()) {
                 String note = "Upstream returned " + resp.getStatusCode();
@@ -148,7 +163,6 @@ public class PaymentUiController {
                 return "redirect:/payment";
             }
 
-            // Success
             Map body = resp.getBody();
             String json = objectToJsonSafe(body);
             ra.addFlashAttribute("success", "Payment submitted successfully.");
@@ -157,20 +171,81 @@ public class PaymentUiController {
                     resp.getStatusCode().value(), body);
 
         } catch (Exception ex) {
-            String msg = ex.getMessage() == null
-                    ? ex.getClass().getSimpleName()
-                    : ex.getMessage();
+            String msg = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             ra.addFlashAttribute("error", "Payment failed: " + msg);
             ra.addFlashAttribute("resultJson",
                     "{\"status\":\"error\",\"note\":\"client_exception\"}");
             ra.addFlashAttribute("form", scrubForFlash(form));
             audit("exception", correlationId, principalId, form,
                     null,
-                    Map.of("exception", ex.getClass().getSimpleName(),
-                           "message", msg));
+                    Map.of("exception", ex.getClass().getSimpleName(), "message", msg));
         }
 
         return "redirect:/payment";
+    }
+
+    // ---------- Helpers ----------
+
+    /** Positive integer check for BigDecimal. */
+    private static boolean isPositiveInteger(BigDecimal amt) {
+        if (amt == null) return false;
+        if (amt.signum() <= 0) return false;       // > 0
+        return amt.stripTrailingZeros().scale() <= 0; // no fractional part
+    }
+
+    /** Try to fetch latest blob name from the Matrix API. */
+    private Optional<String> getLatestBlobName() {
+        try {
+            ResponseEntity<Object> resp = matrixWebClient
+                    .get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path(blobsPath)
+                            .queryParam("container", container)
+                            .build())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .toEntity(Object.class)
+                    .block();
+
+            if (resp == null || resp.getBody() == null) return Optional.empty();
+
+            Object body = resp.getBody();
+
+            // Case 1: array of strings
+            if (body instanceof List<?> list && !list.isEmpty()) {
+                if (list.get(0) instanceof String) {
+                    // assume newest last
+                    return list.stream().map(o -> (String) o).reduce((a, b) -> b);
+                }
+                // Case 2: array of objects { name, lastModified | last_modified }
+                if (list.get(0) instanceof Map) {
+                    return list.stream()
+                            .map(it -> (Map<?, ?>) it)
+                            .sorted((a, b) -> {
+                                Instant ia = parseInstantOrNull(a.get("lastModified"), a.get("last_modified"));
+                                Instant ib = parseInstantOrNull(b.get("lastModified"), b.get("last_modified"));
+                                if (ia == null && ib == null) return 0;
+                                if (ia == null) return 1;
+                                if (ib == null) return -1;
+                                return ib.compareTo(ia); // newest first
+                            })
+                            .map(m -> Objects.toString(m.get("name"), null))
+                            .filter(Objects::nonNull)
+                            .findFirst();
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not fetch latest blob: {}", e.toString());
+        }
+        return Optional.empty();
+    }
+
+    private static Instant parseInstantOrNull(Object... candidates) {
+        for (Object c : candidates) {
+            if (c == null) continue;
+            try { return Instant.parse(c.toString()); } catch (Exception ignored) {}
+        }
+        return null;
     }
 
     /** Audit log: one JSON line per payment attempt */
@@ -254,24 +329,19 @@ public class PaymentUiController {
             }
         }
 
-        if (raw == null || raw.isBlank()) {
-            return "unknown-user";
-        }
+        if (raw == null || raw.isBlank()) return "unknown-user";
 
-        // Strip domain after '@' to get local part (e.g., "amo" from "amo@tenant.onmicrosoft.com")
         int at = raw.indexOf('@');
-        if (at > 0) {
-            raw = raw.substring(0, at);
-        }
+        if (at > 0) raw = raw.substring(0, at);
         return raw.trim();
     }
 
     private PaymentRequest scrubForFlash(PaymentRequest form) {
         PaymentRequest copy = new PaymentRequest();
         copy.setBlob_name(form.getBlob_name());
-        copy.setContainer(CONTAINER);
+        copy.setContainer(container);
         copy.setNode_a(form.getNode_a());
-        copy.setOut_base(OUT_BASE);
+        copy.setOut_base(form.getBlob_name()); // mirror in flash too
         copy.setNode_b(form.getNode_b());
         copy.setAmount(form.getAmount());
         return copy;

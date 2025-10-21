@@ -2,7 +2,7 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
   <meta charset="UTF-8" />
-  <title>Payment v20102025</title>
+  <title>Payment v21102025</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -104,14 +104,21 @@
             <input th:field="*{node_b}" placeholder="Enter recipient node" required />
           </div>
           <div class="field">
-            <label>Amount * (decimal)</label>
-            <input th:field="*{amount}" type="number" step="0.01" min="0.01" placeholder="100.00" inputmode="decimal" required />
+            <label>Amount * (integer > 0)</label>
+            <input th:field="*{amount}"
+                   type="number"
+                   step="1"
+                   min="1"
+                   inputmode="numeric"
+                   pattern="\d+"
+                   placeholder="100"
+                   required />
           </div>
         </div>
 
         <div class="row">
           <div class="field">
-            <label>Out base (fixed)</label>
+            <label>Out base (always equals blob name)</label>
             <input th:field="*{out_base}" readonly />
           </div>
         </div>
@@ -122,19 +129,15 @@
           <a class="btn btn-link" th:href="@{/home}">Cancel</a>
         </div>
 
-        <!-- Server-side validation error (string) -->
         <div style="color:#b91c1c;margin-top:10px" th:if="${error}" th:text="${error}"></div>
       </form>
     </main>
 
-    <!-- Success / Error banners (populated via flash attrs) -->
     <div th:if="${success}" class="banner banner-success" th:text="${success}"></div>
     <div th:if="${error}" class="banner banner-error" th:text="${error}"></div>
 
-    <!-- Result (renders if controller provides resultJson) -->
     <section class="card" th:if="${resultJson}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
-      <!-- safer: escape JSON content -->
       <script type="application/json" id="paymentResult" th:text="${resultJson}">{}</script>
       <pre class="code" id="resultJson">Loading…</pre>
     </section>
@@ -166,23 +169,26 @@
   </div>
 
   <script>
-    // Progressive enhancement: if JS works, show modal before posting.
     const form         = document.getElementById('paymentForm');
     const modalOverlay = document.getElementById('confirmModal');
     const yesBtn       = document.getElementById('confirmYes');
     const noBtn        = document.getElementById('confirmNo');
-    const submitBtn    = document.getElementById('submitBtn');
 
     const sum = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? ''; };
     const val = (name) => form.querySelector(`[name="${name}"]`)?.value || '';
 
     let lastFocus = null;
+    let allowNativeSubmit = false;
 
     form.addEventListener('submit', (e) => {
+      if (allowNativeSubmit) {
+        allowNativeSubmit = false;
+        return;
+      }
       e.preventDefault();
 
       sum('sumBlob',      val('blob_name'));
-      sum('sumContainer', val('container') || 'matrices');
+      sum('sumContainer', val('container'));
       sum('sumFrom',      val('node_a'));
       sum('sumTo',        val('node_b'));
       sum('sumAmount',    val('amount'));
@@ -201,19 +207,18 @@
     }
 
     yesBtn.addEventListener('click', () => {
-      // Run native HTML5 validation; if invalid, close modal so browser can focus the broken field
       if (!form.reportValidity()) {
         closeModal();
         return;
       }
+      yesBtn.disabled = true;
       closeModal();
-      // Trigger a proper submit (keeps constraint validation + submit events)
-      form.requestSubmit();
+      allowNativeSubmit = true;
+      form.submit(); // real submit
     });
 
     noBtn.addEventListener('click', closeModal);
 
-    // Close with Esc when modal open
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && modalOverlay.getAttribute('aria-hidden') === 'false') {
         e.preventDefault();
@@ -221,7 +226,6 @@
       }
     });
 
-    // Pretty-print result JSON if present
     (function initResult() {
       const scriptEl = document.getElementById('paymentResult');
       if (!scriptEl) return;
