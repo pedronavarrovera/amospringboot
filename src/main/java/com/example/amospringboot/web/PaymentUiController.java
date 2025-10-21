@@ -5,7 +5,11 @@ import com.example.amospringboot.matrix.dto.PaymentRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -21,7 +25,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.Map;
-import java.util.Objects;
 
 @Controller
 @RequestMapping("/payment")
@@ -29,7 +32,6 @@ public class PaymentUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaymentUiController.class);
 
-    // Keep these consistent with MatrixUiController
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK  = "initial-matrix.b64";
     private static final String VIEW      = "payment";
@@ -48,7 +50,7 @@ public class PaymentUiController {
         binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
     }
 
-    /** GET /payment — prefill authoritative fields, mirror out_base=blob_name. */
+    /** GET /payment — prefill authoritative fields; out_base mirrors blob_name. */
     @GetMapping
     public String page(Model model,
                        @AuthenticationPrincipal OidcUser oidcUser,
@@ -62,9 +64,9 @@ public class PaymentUiController {
                     ? blob
                     : safeLatest();
 
-            form.setBlob_name(latest);     // authoritative
-            form.setOut_base(latest);      // authoritative (must equal blob_name)
-            form.setContainer(CONTAINER);  // authoritative
+            form.setBlob_name(latest);                 // authoritative
+            form.setOut_base(latest);                  // authoritative (equals blob_name)
+            form.setContainer(CONTAINER);              // authoritative
             form.setNode_a(localPart(resolveUpn(oidcUser, oauth2User))); // authoritative
 
             model.addAttribute("form", form);
@@ -72,9 +74,9 @@ public class PaymentUiController {
         return VIEW;
     }
 
-    /** POST /payment — reassert authoritative values, validate, call API, render result. */
+    /** POST /payment — enforce authoritative fields, validate user inputs, call API, render same view. */
     @PostMapping
-    public String submit(@Valid @ModelAttribute("form") PaymentForm form,
+    public String submit(@Valid @ModelAttribute("form") PaymentForm form, // only user fields are validated
                          BindingResult br,
                          Model model,
                          @AuthenticationPrincipal OidcUser oidcUser,
@@ -85,34 +87,29 @@ public class PaymentUiController {
         String nodeA  = localPart(resolveUpn(oidcUser, oauth2User));
 
         form.setBlob_name(latest);
-        form.setOut_base(latest);
+        form.setOut_base(latest);          // MUST equal blob_name
         form.setContainer(CONTAINER);
         form.setNode_a(nodeA);
 
-        // Field-level validation (Bean + custom)
+        // Bean validation only checks user inputs (node_b, amount)
         if (br.hasErrors()) {
             model.addAttribute("error", "Please fix the highlighted errors and try again.");
             model.addAttribute("form", form);
             return VIEW;
         }
 
+        // Extra guard: amount must be a positive integer (no decimals)
         if (!isPositiveInteger(form.getAmount())) {
             model.addAttribute("error", "Amount must be a positive integer (no decimals).");
             model.addAttribute("form", form);
             return VIEW;
         }
 
-        if (isBlank(form.getNode_b())) {
-            model.addAttribute("error", "Node B is required.");
-            model.addAttribute("form", form);
-            return VIEW;
-        }
-
         try {
-            // Map to DTO expected by the Matrix API
+            // Map to DTO with strict constraints (already fixed in your PaymentRequest)
             PaymentRequest req = new PaymentRequest();
             req.setBlob_name(form.getBlob_name());
-            req.setOut_base(form.getOut_base());           // must equal blob_name
+            req.setOut_base(form.getOut_base());     // equals blob_name
             req.setContainer(form.getContainer());
             req.setNode_a(form.getNode_a());
             req.setNode_b(form.getNode_b());
@@ -127,12 +124,11 @@ public class PaymentUiController {
             model.addAttribute("error", "Payment failed: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
 
-        // Keep showing enforced values and user inputs after submit
         model.addAttribute("form", form);
         return VIEW;
     }
 
-    // ============== helpers (kept stylistically consistent with MatrixUiController) ==============
+    // ===== helpers (mirroring MatrixUiController style) =====
 
     private String safeLatest() {
         try {
@@ -176,9 +172,6 @@ public class PaymentUiController {
         return null;
     }
 
-    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
-
-    /** Amount must be >0 and have no fractional part. */
     private static boolean isPositiveInteger(BigDecimal amt) {
         if (amt == null) return false;
         if (amt.signum() <= 0) return false;
@@ -193,28 +186,36 @@ public class PaymentUiController {
         }
     }
 
-    // --- form object (kept local for UI binding, mirrors PaymentRequest fields we use) ---
+    // ---- UI form class: VALIDATE ONLY USER INPUTS ----
     public static class PaymentForm {
-        @NotBlank private String blob_name; // authoritative
-        @NotBlank private String node_a;    // authoritative (UPN local-part)
-        @NotBlank private String node_b;    // user-entered
-        @NotBlank private String container; // authoritative
-        @NotBlank private String out_base;  // authoritative (must equal blob_name)
-        private BigDecimal amount;          // user-entered (must be integer >0)
+        // authoritative fields (no bean validation here; they’re reasserted server-side)
+        private String blob_name;
+        private String node_a;
+        private String container;
+        private String out_base;
+
+        // user-entered fields (validated)
+        @NotBlank(message = "Node B is required")
+        @Pattern(regexp = "^[A-Za-z0-9_\\-]{1,64}$",
+                 message = "Node must be 1–64 chars, letters/digits/_/- only")
+        private String node_b;
+
+        @NotNull(message = "Amount is required")
+        @Positive(message = "Amount must be greater than 0")
+        @Digits(integer = 12, fraction = 0, message = "Amount must be an integer (no decimals)")
+        private BigDecimal amount;
 
         public String getBlob_name() { return blob_name; }
         public void setBlob_name(String blob_name) { this.blob_name = blob_name; }
         public String getNode_a() { return node_a; }
         public void setNode_a(String node_a) { this.node_a = node_a; }
-        public String getNode_b() { return node_b; }
-        public void setNode_b(String node_b) { this.node_b = node_b; }
         public String getContainer() { return container; }
         public void setContainer(String container) { this.container = container; }
         public String getOut_base() { return out_base; }
         public void setOut_base(String out_base) { this.out_base = out_base; }
+        public String getNode_b() { return node_b; }
+        public void setNode_b(String node_b) { this.node_b = node_b; }
         public BigDecimal getAmount() { return amount; }
         public void setAmount(BigDecimal amount) { this.amount = amount; }
     }
 }
-
-
