@@ -1,26 +1,40 @@
 package com.example.amospringboot.matrix.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 
 public class PaymentRequest {
-    @NotBlank
+
+    @NotBlank(message = "Blob name is required")
     private String blob_name;
 
-    @NotBlank
+    @NotBlank(message = "Node A is required")
+    @Pattern(
+        regexp = "^[A-Za-z0-9_\\-]{1,64}$",
+        message = "Node must be 1–64 chars, letters/digits/_/- only"
+    )
     private String node_a;
 
-    @NotBlank
+    @NotBlank(message = "Node B is required")
+    @Pattern(
+        regexp = "^[A-Za-z0-9_\\-]{1,64}$",
+        message = "Node must be 1–64 chars, letters/digits/_/- only"
+    )
     private String node_b;
 
-    @NotNull
+    /** Strictly positive integer amount (no decimals). */
+    @NotNull(message = "Amount is required")
+    @Positive(message = "Amount must be greater than 0")
+    @Digits(integer = 12, fraction = 0, message = "Amount must be an integer (no decimals)")
     private BigDecimal amount;
 
-    // optional
+    @NotBlank(message = "Out base is required")
     private String out_base;
+
+    @NotBlank(message = "Container is required")
     private String container;
 
+    // Getters / Setters
     public String getBlob_name() { return blob_name; }
     public void setBlob_name(String blob_name) { this.blob_name = blob_name; }
 
