@@ -28,21 +28,19 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern as RePattern; // <-- if this alias confuses your IDE, remove and use java.util.regex.Pattern fully-qualified
 
 @Controller
 @RequestMapping("/payment")
 public class PaymentUiController {
 
     private static final Logger LOG   = LoggerFactory.getLogger(PaymentUiController.class);
-    /** Matches <logger name="payment.audit"> in logback-spring.xml */
     private static final Logger AUDIT = LoggerFactory.getLogger("payment.audit");
 
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK  = "initial-matrix.b64";
     private static final String VIEW      = "payment";
 
-    // UPDATED: regex to strip one or more trailing -YYYYMMDD-HHMMSS sequences
+    // use fully qualified name to avoid collision
     private static final java.util.regex.Pattern TS_TAIL =
             java.util.regex.Pattern.compile("(-\\d{8}-\\d{6})+$");
 
@@ -54,13 +52,11 @@ public class PaymentUiController {
         this.objectMapper = objectMapper;
     }
 
-    /** Prevent binding of authoritative fields (they’re readonly in the UI). */
     @InitBinder("form")
     public void disallowAuthoritative(WebDataBinder binder) {
         binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
     }
 
-    /** GET /payment — prefill authoritative fields; out_base derived from blob_name (no old ts). */
     @GetMapping
     public String page(Model model,
                        @AuthenticationPrincipal OidcUser oidcUser,
@@ -69,20 +65,20 @@ public class PaymentUiController {
 
         if (!model.containsAttribute("form")) {
             PaymentForm form = new PaymentForm();
-
             String latest = (blob != null && !blob.isBlank()) ? blob : safeLatest();
-
-            form.setBlob_name(latest);                 // authoritative
-            form.setOut_base(normalizeOutBase(latest)); // UPDATED: derive clean base
-            form.setContainer(CONTAINER);              // authoritative
-            form.setNode_a(localPart(resolveUpn(oidcUser, oauth2User))); // authoritative
-
+            form.setBlob_name(latest);
+            form.setOut_base(normalizeOutBase(latest));
+            form.setContainer(CONTAINER);
+            form.setNode_a(localPart(resolveUpn(oidcUser, oauth2User)));
             model.addAttribute("form", form);
         }
+        // placeholders for messages
+        model.addAttribute("paymentOk", null);
+        model.addAttribute("paymentMessage", null);
+        model.addAttribute("paymentBlob", null);
         return VIEW;
     }
 
-    /** POST /payment — log attempt + result with a traceId; no deprecated APIs used. */
     @PostMapping
     public String submit(@Valid @ModelAttribute("form") PaymentForm form,
                          BindingResult br,
@@ -93,19 +89,18 @@ public class PaymentUiController {
         final String traceId = UUID.randomUUID().toString();
         MDC.put("traceId", traceId);
 
-        // Re-enforce authoritative values regardless of client input
         String latest = safeLatest();
         String nodeA  = localPart(resolveUpn(oidcUser, oauth2User));
 
         form.setBlob_name(latest);
-        form.setOut_base(normalizeOutBase(latest)); // UPDATED: ensure clean base every submit
+        form.setOut_base(normalizeOutBase(latest));
         form.setContainer(CONTAINER);
         form.setNode_a(nodeA);
 
-        // Bean validation only checks user inputs (node_b, amount)
         if (br.hasErrors()) {
-            model.addAttribute("error", "Please fix the highlighted errors and try again.");
-            model.addAttribute("form", form);
+            model.addAttribute("paymentOk", false);
+            model.addAttribute("paymentMessage", "❌ Please fix the highlighted errors and try again.");
+            model.addAttribute("paymentBlob", null);
             LOG.info("PAYMENT_FAILURE traceId={} reason=validation container={} blob={} out={} node_a={} node_b={} amount={} errors={}",
                     traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
                     safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount(), br.getErrorCount());
@@ -116,10 +111,10 @@ public class PaymentUiController {
             return VIEW;
         }
 
-        // Extra guard: amount must be a positive integer (no decimals)
         if (!isPositiveInteger(form.getAmount())) {
-            model.addAttribute("error", "Amount must be a positive integer (no decimals).");
-            model.addAttribute("form", form);
+            model.addAttribute("paymentOk", false);
+            model.addAttribute("paymentMessage", "❌ Amount must be a positive integer (no decimals).");
+            model.addAttribute("paymentBlob", null);
             LOG.info("PAYMENT_FAILURE traceId={} reason=nonIntegerAmount container={} blob={} out={} node_a={} node_b={} amount={}",
                     traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
                     safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount());
@@ -155,6 +150,12 @@ public class PaymentUiController {
             String status = String.valueOf(result.getOrDefault("status", "unknown"));
             String writtenBlob = String.valueOf(result.getOrDefault("written_blob", ""));
 
+            boolean ok = "ok".equalsIgnoreCase(status);
+            String uiMsg = ok
+                    ? ("✅ Payment successful from " + req.getNode_a() + " → " + req.getNode_b()
+                        + ". Update written to blob “" + writtenBlob + "”.")
+                    : ("❌ Payment failed. Status: " + status);
+
             LOG.info("PAYMENT_SUCCESS traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} amount={} status={} written_blob={} result={}",
                     traceId, durationMs,
                     req.getContainer(), req.getBlob_name(), req.getOut_base(),
@@ -165,9 +166,12 @@ public class PaymentUiController {
                     safe(req.getNode_a()), safe(req.getNode_b()), req.getAmount(),
                     status, writtenBlob);
 
-            model.addAttribute("success", "Payment submitted.");
+            model.addAttribute("paymentOk", ok);
+            model.addAttribute("paymentMessage", uiMsg);
+            model.addAttribute("paymentBlob", writtenBlob);
             model.addAttribute("result", result);
             model.addAttribute("resultJson", resultJson);
+
         } catch (Exception e) {
             String msg = (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             LOG.warn("PAYMENT_FAILURE traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} amount={} error={} class={}",
@@ -180,7 +184,9 @@ public class PaymentUiController {
                     safe(form.getNode_a()), safe(form.getNode_b()), form.getAmount(),
                     truncate(msg, 1000));
 
-            model.addAttribute("error", "Payment failed: " + msg);
+            model.addAttribute("paymentOk", false);
+            model.addAttribute("paymentMessage", "❌ Payment failed: " + msg);
+            model.addAttribute("paymentBlob", null);
         } finally {
             MDC.clear();
         }
@@ -199,11 +205,10 @@ public class PaymentUiController {
         }
     }
 
-    // UPDATED: convert "initial-matrix-20251018-091137.b64" -> "initial-matrix"
     private static String normalizeOutBase(String blobName) {
         if (blobName == null || blobName.isBlank()) return "payment-update";
         String base = blobName.endsWith(".b64") ? blobName.substring(0, blobName.length() - 4) : blobName;
-        base = TS_TAIL.matcher(base).replaceAll(""); // strip trailing timestamp(s)
+        base = TS_TAIL.matcher(base).replaceAll("");
         return base;
     }
 
@@ -255,26 +260,21 @@ public class PaymentUiController {
         }
     }
 
-    /** Avoid logging full UPN; we already use local part. Keep simple for logs. */
     private static String safe(String s) {
         return s == null ? "null" : s;
     }
 
-    /** Keep logs bounded to prevent huge payloads. */
     private static String truncate(String s, int max) {
         if (s == null) return null;
         return (s.length() <= max) ? s : s.substring(0, max) + "...(truncated)";
     }
 
-    // ---- UI form class: VALIDATE ONLY USER INPUTS ----
     public static class PaymentForm {
-        // authoritative fields (no bean validation here; they’re reasserted server-side)
         private String blob_name;
         private String node_a;
         private String container;
         private String out_base;
 
-        // user-entered fields (validated)
         @NotBlank(message = "Node B is required")
         @Pattern(regexp = "^[A-Za-z0-9_\\-]{1,64}$",
                  message = "Node must be 1–64 chars, letters/digits/_/- only")
@@ -299,5 +299,3 @@ public class PaymentUiController {
         public void setAmount(BigDecimal amount) { this.amount = amount; }
     }
 }
-
-
