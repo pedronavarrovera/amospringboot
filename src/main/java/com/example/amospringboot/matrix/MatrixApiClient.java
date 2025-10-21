@@ -11,6 +11,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -25,6 +27,22 @@ public class MatrixApiClient {
             new ParameterizedTypeReference<>() {};
     private static final ParameterizedTypeReference<List<String>> LIST_TYPE =
             new ParameterizedTypeReference<>() {};
+
+    private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+
+    /**
+     * Matches one or more "-YYYYMMDD-HHMMSS" groups immediately before the extension.
+     * Example: "initial-matrix-20251018-091137-20251021-195554.b64"
+     */
+    private static final Pattern MULTI_TS_BEFORE_EXT =
+            Pattern.compile("(-\\d{8}-\\d{6})+(?=\\.[^.]+$)");
+
+    /**
+     * Captures the last YYYYMMDD-HHMMSS immediately before the extension.
+     * We’ll use the last match when files have multiple stamps.
+     */
+    private static final Pattern LAST_TS_BEFORE_EXT =
+            Pattern.compile("(\\d{8}-\\d{6})(?=\\.[^.]+$)");
 
     private final WebClient webClient;
 
@@ -127,21 +145,11 @@ public class MatrixApiClient {
         List<String> files = listBlobs(container);
         if (files == null || files.isEmpty()) return fallback;
 
-        Pattern p = Pattern.compile("(\\d{8}-\\d{6})(?=\\.[^.]+$)");
-
-        // First try timestamp-aware max
         String byTimestamp = files.stream()
                 .filter(n -> n != null && n.endsWith(".b64"))
-                .map(n -> {
-                    Matcher m = p.matcher(n);
-                    String last = null;
-                    while (m.find()) last = m.group(1); // last occurrence
-                    if (last == null) return null;
-                    String ts = last.replace("-", "");  // e.g. 20251015082727
-                    return new String[]{ n, ts };
-                })
-                .filter(arr -> arr != null)
-                .max(Comparator.comparing(arr -> arr[1])) // lexicographic on YYYYMMDDHHMMSS
+                .map(n -> new String[]{ n, extractLastTimestampCompact(n) }) // [name, yyyymmddHHmmss or null]
+                .filter(arr -> arr[1] != null)
+                .max(Comparator.comparing((String[] arr) -> arr[1]).thenComparing(arr -> arr[0]))
                 .map(arr -> arr[0])
                 .orElse(null);
 
@@ -157,5 +165,53 @@ public class MatrixApiClient {
     /** Convenience overload with a sensible default fallback. */
     public String latestBlob(String container) {
         return latestBlob(container, "initial-matrix.b64");
+    }
+
+    /* ===================== FILENAME HELPERS (NEW) ===================== */
+
+    /**
+     * Strip any number of "-YYYYMMDD-HHMMSS" groups that appear immediately before the extension.
+     * Example:
+     *   "initial-matrix-20251018-091137-20251021-195554.b64" -> "initial-matrix.b64"
+     */
+    public String normalizeBase(String blobName) {
+        if (blobName == null) return null;
+        return MULTI_TS_BEFORE_EXT.matcher(blobName).replaceAll("");
+    }
+
+    /**
+     * Build a single, clean timestamped filename from a base (which may already have stamps).
+     * Keeps the original extension (".b64" or whatever is present).
+     * Example:
+     *   base="initial-matrix-20251018-091137.b64" -> "initial-matrix-20251021-200105.b64"
+     */
+    public String nextTimestampedName(String base) {
+        return nextTimestampedName(base, LocalDateTime.now());
+    }
+
+    /** For testability/injection */
+    public String nextTimestampedName(String base, LocalDateTime now) {
+        String normalized = normalizeBase(base);
+        if (normalized == null || normalized.isBlank()) {
+            normalized = "initial-matrix.b64";
+        }
+        int dot = normalized.lastIndexOf('.');
+        String ext = dot >= 0 ? normalized.substring(dot) : "";
+        String stem = dot >= 0 ? normalized.substring(0, dot) : normalized;
+
+        return stem + "-" + now.format(TS_FMT) + ext;
+    }
+
+    /**
+     * Extract the *last* "YYYYMMDD-HHMMSS" immediately before the extension and return it
+     * compacted as "yyyyMMddHHmmss" for lexicographic comparison. Returns null if absent.
+     */
+    private String extractLastTimestampCompact(String name) {
+        if (name == null) return null;
+        Matcher m = LAST_TS_BEFORE_EXT.matcher(name);
+        String last = null;
+        while (m.find()) last = m.group(1); // take the last timestamp before extension
+        if (last == null) return null;
+        return last.replace("-", ""); // yyyyMMddHHmmss
     }
 }
