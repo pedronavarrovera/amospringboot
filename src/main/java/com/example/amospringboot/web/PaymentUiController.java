@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern as RePattern; // <-- if this alias confuses your IDE, remove and use java.util.regex.Pattern fully-qualified
 
 @Controller
 @RequestMapping("/payment")
@@ -40,6 +41,10 @@ public class PaymentUiController {
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK  = "initial-matrix.b64";
     private static final String VIEW      = "payment";
+
+    // UPDATED: regex to strip one or more trailing -YYYYMMDD-HHMMSS sequences
+    private static final java.util.regex.Pattern TS_TAIL =
+            java.util.regex.Pattern.compile("(-\\d{8}-\\d{6})+$");
 
     private final MatrixApiClient client;
     private final ObjectMapper objectMapper;
@@ -55,7 +60,7 @@ public class PaymentUiController {
         binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
     }
 
-    /** GET /payment — prefill authoritative fields; out_base mirrors blob_name. */
+    /** GET /payment — prefill authoritative fields; out_base derived from blob_name (no old ts). */
     @GetMapping
     public String page(Model model,
                        @AuthenticationPrincipal OidcUser oidcUser,
@@ -68,7 +73,7 @@ public class PaymentUiController {
             String latest = (blob != null && !blob.isBlank()) ? blob : safeLatest();
 
             form.setBlob_name(latest);                 // authoritative
-            form.setOut_base(latest);                  // authoritative (equals blob_name)
+            form.setOut_base(normalizeOutBase(latest)); // UPDATED: derive clean base
             form.setContainer(CONTAINER);              // authoritative
             form.setNode_a(localPart(resolveUpn(oidcUser, oauth2User))); // authoritative
 
@@ -93,7 +98,7 @@ public class PaymentUiController {
         String nodeA  = localPart(resolveUpn(oidcUser, oauth2User));
 
         form.setBlob_name(latest);
-        form.setOut_base(latest);          // MUST equal blob_name (per current contract)
+        form.setOut_base(normalizeOutBase(latest)); // UPDATED: ensure clean base every submit
         form.setContainer(CONTAINER);
         form.setNode_a(nodeA);
 
@@ -150,7 +155,6 @@ public class PaymentUiController {
             String status = String.valueOf(result.getOrDefault("status", "unknown"));
             String writtenBlob = String.valueOf(result.getOrDefault("written_blob", ""));
 
-            // SUCCESS — include all key data + status/written_blob
             LOG.info("PAYMENT_SUCCESS traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} amount={} status={} written_blob={} result={}",
                     traceId, durationMs,
                     req.getContainer(), req.getBlob_name(), req.getOut_base(),
@@ -166,7 +170,6 @@ public class PaymentUiController {
             model.addAttribute("resultJson", resultJson);
         } catch (Exception e) {
             String msg = (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-            // FAILURE — include all key data
             LOG.warn("PAYMENT_FAILURE traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} amount={} error={} class={}",
                     traceId, durationMs,
                     form.getContainer(), form.getBlob_name(), form.getOut_base(),
@@ -194,6 +197,14 @@ public class PaymentUiController {
         } catch (Exception e) {
             return FALLBACK;
         }
+    }
+
+    // UPDATED: convert "initial-matrix-20251018-091137.b64" -> "initial-matrix"
+    private static String normalizeOutBase(String blobName) {
+        if (blobName == null || blobName.isBlank()) return "payment-update";
+        String base = blobName.endsWith(".b64") ? blobName.substring(0, blobName.length() - 4) : blobName;
+        base = TS_TAIL.matcher(base).replaceAll(""); // strip trailing timestamp(s)
+        return base;
     }
 
     private static String resolveUpn(OidcUser oidc, OAuth2User oauth2) {
@@ -288,4 +299,5 @@ public class PaymentUiController {
         public void setAmount(BigDecimal amount) { this.amount = amount; }
     }
 }
+
 
