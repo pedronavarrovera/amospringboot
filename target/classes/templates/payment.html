@@ -2,7 +2,7 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
   <meta charset="UTF-8" />
-  <title>Payment v20102025</title>
+  <title>Payment v21102025</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -104,14 +104,21 @@
             <input th:field="*{node_b}" placeholder="Enter recipient node" required />
           </div>
           <div class="field">
-            <label>Amount * (decimal)</label>
-            <input th:field="*{amount}" type="number" step="0.01" min="0.01" placeholder="100.00" inputmode="decimal" required />
+            <label>Amount * (integer > 0)</label>
+            <input th:field="*{amount}"
+                   type="number"
+                   step="1"
+                   min="1"
+                   inputmode="numeric"
+                   pattern="\d+"
+                   placeholder="100"
+                   required />
           </div>
         </div>
 
         <div class="row">
           <div class="field">
-            <label>Out base (fixed)</label>
+            <label>Out base (always equals blob name)</label>
             <input th:field="*{out_base}" readonly />
           </div>
         </div>
@@ -166,7 +173,6 @@
     const modalOverlay = document.getElementById('confirmModal');
     const yesBtn       = document.getElementById('confirmYes');
     const noBtn        = document.getElementById('confirmNo');
-    const submitBtn    = document.getElementById('submitBtn');
 
     const sum = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? ''; };
     const val = (name) => form.querySelector(`[name="${name}"]`)?.value || '';
@@ -182,7 +188,7 @@
       e.preventDefault();
 
       sum('sumBlob',      val('blob_name'));
-      sum('sumContainer', val('container') || 'matrices');
+      sum('sumContainer', val('container'));
       sum('sumFrom',      val('node_a'));
       sum('sumTo',        val('node_b'));
       sum('sumAmount',    val('amount'));
@@ -208,7 +214,7 @@
       yesBtn.disabled = true;
       closeModal();
       allowNativeSubmit = true;
-      form.submit(); // actually submits the form
+      form.submit(); // real submit
     });
 
     noBtn.addEventListener('click', closeModal);
