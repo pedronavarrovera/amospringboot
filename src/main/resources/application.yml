@@ -6,15 +6,15 @@
 # =========================
 server:
   port: ${PORT:8080}
-  forward-headers-strategy: framework   # trust X-Forwarded-* from DO
+  forward-headers-strategy: framework   # trust X-Forwarded-* from DO/edge
   servlet:
     session:
       timeout: 30m
       cookie:
         name: JSESSIONID
         http-only: true
-        secure: true          # DO terminates TLS at the edge; with forward headers Spring will still set Secure
-        same-site: none       # critical for the post-login redirect cross-site flow
+        secure: true           # SameSite=None requires Secure
+        same-site: none        # needed for OIDC redirect across domains
 
 spring:
   datasource:
@@ -24,6 +24,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
   security:
     oauth2:
       client:
@@ -35,23 +36,32 @@ spring:
               - openid
               - profile
               - email
-              - offline_access   # persist refresh tokens
-            # baseUrl is inferred from request; with forward-headers-strategy it will be https://payment.amo.onl
+              - offline_access     # persist refresh tokens
+            # baseUrl inferred via forward headers -> https://payment.amo.onl
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           azure:
             issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
-            user-name-attribute: name               # full display name
+            user-name-attribute: name
 
 # ===== Matrix API (server-to-server) =====
 matrix:
+  container: ${MATRIX_CONTAINER:matrices}
   api:
-    # In DO (Spring component) set: MATRIX_API_BASE_URL=https://api.amo.onl
+    # WebClient base URL (configured in your WebClientConfig)
     base-url: ${MATRIX_API_BASE_URL:https://api.amo.onl}
+    # Controller will call: {base-url}{payment-path}
+    payment-path: ${MATRIX_API_PAYMENT_PATH:/payment}
+    # Controller will call: {base-url}{blobs-path}?container=...
+    blobs-path: ${MATRIX_API_BLOBS_PATH:/matrix/blobs}
+
+# Application-level settings
+app:
+  timezone: ${APP_TIMEZONE:Europe/Brussels}
 
 # =========================
-# Local SSL profile (keep your keystore on 8443)
-# Activate with:  SPRING_PROFILES_ACTIVE=local-ssl
+# Local SSL profile (optional)
+# Activate with: SPRING_PROFILES_ACTIVE=local-ssl
 # =========================
 ---
 spring:
@@ -64,6 +74,6 @@ server:
   ssl:
     enabled: true
     key-store: classpath:keystore.p12
-    key-store-password: ${KEYSTORE_PASSWORD:}   # set locally
+    key-store-password: ${KEYSTORE_PASSWORD:}
     key-store-type: PKCS12
     key-alias: amospringboot

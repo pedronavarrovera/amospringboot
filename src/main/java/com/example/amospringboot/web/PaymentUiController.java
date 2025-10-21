@@ -1,15 +1,16 @@
 package com.example.amospringboot.web;
 
+import com.example.amospringboot.matrix.MatrixApiClient;
 import com.example.amospringboot.matrix.dto.PaymentRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
@@ -17,334 +18,203 @@ import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
-import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.*;
+import java.util.Map;
+import java.util.Objects;
 
-/**
- * /payment UI: out_base MUST always equal blob_name.
- * Amount MUST be a positive integer (>0), never decimal.
- */
 @Controller
 @RequestMapping("/payment")
 public class PaymentUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaymentUiController.class);
-    private static final Logger AUDIT = LoggerFactory.getLogger("payment.audit");
 
-    private static final String VIEW = "payment";
-    private static final String FALLBACK_BLOB = "initial-matrix.b64";
+    // Keep these consistent with MatrixUiController
+    private static final String CONTAINER = "matrices";
+    private static final String FALLBACK  = "initial-matrix.b64";
+    private static final String VIEW      = "payment";
 
-    private final WebClient matrixWebClient;
+    private final MatrixApiClient client;
     private final ObjectMapper objectMapper;
-    private final String paymentPath;
-    private final String blobsPath;
-    private final String container;
 
-    public PaymentUiController(
-            WebClient matrixWebClient,
-            ObjectMapper objectMapper,
-            @Value("${matrix.api.payment-path:/payment}") String paymentPath,
-            @Value("${matrix.api.blobs-path:/blobs}") String blobsPath,
-            @Value("${matrix.container:matrices}") String container
-    ) {
-        this.matrixWebClient = matrixWebClient;
+    public PaymentUiController(MatrixApiClient client, ObjectMapper objectMapper) {
+        this.client = client;
         this.objectMapper = objectMapper;
-        this.paymentPath = paymentPath;
-        this.blobsPath = blobsPath;
-        this.container = container;
     }
 
-    /** Prevent tampering of authoritative fields (readonly in UI). */
+    /** Prevent binding of authoritative fields (they’re readonly in the UI). */
     @InitBinder("form")
-    void initBinder(WebDataBinder binder) {
-        binder.setDisallowedFields("node_a", "container", "blob_name", "out_base");
+    public void disallowAuthoritative(WebDataBinder binder) {
+        binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
     }
 
+    /** GET /payment — prefill authoritative fields, mirror out_base=blob_name. */
     @GetMapping
-    public String page(
-            @RequestParam(value = "blob", required = false) String blob,
-            Model model,
-            @AuthenticationPrincipal OidcUser oidcUser,
-            @AuthenticationPrincipal OAuth2User oauth2User
-    ) {
+    public String page(Model model,
+                       @AuthenticationPrincipal OidcUser oidcUser,
+                       @AuthenticationPrincipal OAuth2User oauth2User,
+                       @RequestParam(value = "blob", required = false) String blob) {
+
         if (!model.containsAttribute("form")) {
-            PaymentRequest form = new PaymentRequest();
+            PaymentForm form = new PaymentForm();
 
-            form.setContainer(container);
-
-            // Pick blob: ?blob=… > latest > fallback
-            String chosenBlob = (blob != null && !blob.isBlank())
+            String latest = (blob != null && !blob.isBlank())
                     ? blob
-                    : getLatestBlobName().orElse(FALLBACK_BLOB);
-            form.setBlob_name(chosenBlob);
+                    : safeLatest();
 
-            // out_base mirrors blob_name
-            form.setOut_base(chosenBlob);
-
-            // node A = local-part of current user
-            form.setNode_a(resolveCurrentUser(oidcUser, oauth2User));
+            form.setBlob_name(latest);     // authoritative
+            form.setOut_base(latest);      // authoritative (must equal blob_name)
+            form.setContainer(CONTAINER);  // authoritative
+            form.setNode_a(localPart(resolveUpn(oidcUser, oauth2User))); // authoritative
 
             model.addAttribute("form", form);
         }
         return VIEW;
     }
 
+    /** POST /payment — reassert authoritative values, validate, call API, render result. */
     @PostMapping
-    public String submit(
-            @Valid @ModelAttribute("form") PaymentRequest form,
-            BindingResult br,
-            RedirectAttributes ra,
-            @AuthenticationPrincipal OidcUser oidcUser,
-            @AuthenticationPrincipal OAuth2User oauth2User
-    ) {
-        final String correlationId = UUID.randomUUID().toString();
-        final String principalId = resolveCurrentUser(oidcUser, oauth2User);
+    public String submit(@Valid @ModelAttribute("form") PaymentForm form,
+                         BindingResult br,
+                         Model model,
+                         @AuthenticationPrincipal OidcUser oidcUser,
+                         @AuthenticationPrincipal OAuth2User oauth2User) {
 
-        // Reassert authoritative fields server-side
-        form.setContainer(container);
-        if (form.getBlob_name() == null || form.getBlob_name().isBlank()) {
-            form.setBlob_name(getLatestBlobName().orElse(FALLBACK_BLOB));
-        }
-        form.setOut_base(form.getBlob_name()); // ALWAYS equal
-        form.setNode_a(principalId);
+        // Re-enforce authoritative values regardless of client input
+        String latest = safeLatest();
+        String nodeA  = localPart(resolveUpn(oidcUser, oauth2User));
 
-        // Jakarta validation errors?
+        form.setBlob_name(latest);
+        form.setOut_base(latest);
+        form.setContainer(CONTAINER);
+        form.setNode_a(nodeA);
+
+        // Field-level validation (Bean + custom)
         if (br.hasErrors()) {
-            ra.addFlashAttribute("error", "Please fix the highlighted errors and try again.");
-            ra.addFlashAttribute("form", scrubForFlash(form));
-            audit("validation_error", correlationId, principalId, form, null, null);
-            return "redirect:/payment";
+            model.addAttribute("error", "Please fix the highlighted errors and try again.");
+            model.addAttribute("form", form);
+            return VIEW;
         }
 
-        // Custom amount validation: positive integer only
         if (!isPositiveInteger(form.getAmount())) {
-            ra.addFlashAttribute("error", "Amount must be a positive integer (no decimals).");
-            ra.addFlashAttribute("form", scrubForFlash(form));
-            audit("validation_error", correlationId, principalId, form, null, null);
-            return "redirect:/payment";
+            model.addAttribute("error", "Amount must be a positive integer (no decimals).");
+            model.addAttribute("form", form);
+            return VIEW;
         }
 
-        // Node B required
-        if (form.getNode_b() == null || form.getNode_b().isBlank()) {
-            ra.addFlashAttribute("error", "Node B is required.");
-            ra.addFlashAttribute("form", scrubForFlash(form));
-            audit("validation_error", correlationId, principalId, form, null, null);
-            return "redirect:/payment";
+        if (isBlank(form.getNode_b())) {
+            model.addAttribute("error", "Node B is required.");
+            model.addAttribute("form", form);
+            return VIEW;
         }
 
         try {
-            // Call matrix API via WebClient
-            ResponseEntity<Map> resp = matrixWebClient
-                    .post()
-                    .uri(paymentPath)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .bodyValue(form)
-                    .retrieve()
-                    .toEntity(Map.class)
-                    .onErrorResume(e -> Mono.error(new IllegalStateException("Upstream error", e)))
-                    .block();
+            // Map to DTO expected by the Matrix API
+            PaymentRequest req = new PaymentRequest();
+            req.setBlob_name(form.getBlob_name());
+            req.setOut_base(form.getOut_base());           // must equal blob_name
+            req.setContainer(form.getContainer());
+            req.setNode_a(form.getNode_a());
+            req.setNode_b(form.getNode_b());
+            req.setAmount(form.getAmount());
 
-            if (resp == null) throw new IllegalStateException("Upstream returned null response");
-
-            if (!resp.getStatusCode().is2xxSuccessful()) {
-                String note = "Upstream returned " + resp.getStatusCode();
-                ra.addFlashAttribute("error", "Payment failed: " + note);
-                ra.addFlashAttribute("resultJson",
-                        "{\"status\":\"error\",\"note\":\"" + escape(note) + "\"}");
-                ra.addFlashAttribute("form", scrubForFlash(form));
-                audit("failure", correlationId, principalId, form,
-                        resp.getStatusCode().value(), resp.getBody());
-                return "redirect:/payment";
-            }
-
-            Map body = resp.getBody();
-            String json = objectToJsonSafe(body);
-            ra.addFlashAttribute("success", "Payment submitted successfully.");
-            ra.addFlashAttribute("resultJson", json);
-            audit("success", correlationId, principalId, form,
-                    resp.getStatusCode().value(), body);
-
-        } catch (Exception ex) {
-            String msg = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-            ra.addFlashAttribute("error", "Payment failed: " + msg);
-            ra.addFlashAttribute("resultJson",
-                    "{\"status\":\"error\",\"note\":\"client_exception\"}");
-            ra.addFlashAttribute("form", scrubForFlash(form));
-            audit("exception", correlationId, principalId, form,
-                    null,
-                    Map.of("exception", ex.getClass().getSimpleName(), "message", msg));
-        }
-
-        return "redirect:/payment";
-    }
-
-    // ---------- Helpers ----------
-
-    /** Positive integer check for BigDecimal. */
-    private static boolean isPositiveInteger(BigDecimal amt) {
-        if (amt == null) return false;
-        if (amt.signum() <= 0) return false;       // > 0
-        return amt.stripTrailingZeros().scale() <= 0; // no fractional part
-    }
-
-    /** Try to fetch latest blob name from the Matrix API. */
-    private Optional<String> getLatestBlobName() {
-        try {
-            ResponseEntity<Object> resp = matrixWebClient
-                    .get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path(blobsPath)
-                            .queryParam("container", container)
-                            .build())
-                    .accept(MediaType.APPLICATION_JSON)
-                    .retrieve()
-                    .toEntity(Object.class)
-                    .block();
-
-            if (resp == null || resp.getBody() == null) return Optional.empty();
-
-            Object body = resp.getBody();
-
-            // Case 1: array of strings
-            if (body instanceof List<?> list && !list.isEmpty()) {
-                if (list.get(0) instanceof String) {
-                    // assume newest last
-                    return list.stream().map(o -> (String) o).reduce((a, b) -> b);
-                }
-                // Case 2: array of objects { name, lastModified | last_modified }
-                if (list.get(0) instanceof Map) {
-                    return list.stream()
-                            .map(it -> (Map<?, ?>) it)
-                            .sorted((a, b) -> {
-                                Instant ia = parseInstantOrNull(a.get("lastModified"), a.get("last_modified"));
-                                Instant ib = parseInstantOrNull(b.get("lastModified"), b.get("last_modified"));
-                                if (ia == null && ib == null) return 0;
-                                if (ia == null) return 1;
-                                if (ib == null) return -1;
-                                return ib.compareTo(ia); // newest first
-                            })
-                            .map(m -> Objects.toString(m.get("name"), null))
-                            .filter(Objects::nonNull)
-                            .findFirst();
-                }
-            }
+            Map<String, Object> result = client.applyPayment(req);
+            model.addAttribute("success", "Payment submitted.");
+            model.addAttribute("result", result);
+            model.addAttribute("resultJson", toJson(result));
         } catch (Exception e) {
-            LOG.warn("Could not fetch latest blob: {}", e.toString());
+            LOG.warn("Payment failed: {}", e.toString());
+            model.addAttribute("error", "Payment failed: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
-        return Optional.empty();
+
+        // Keep showing enforced values and user inputs after submit
+        model.addAttribute("form", form);
+        return VIEW;
     }
 
-    private static Instant parseInstantOrNull(Object... candidates) {
-        for (Object c : candidates) {
-            if (c == null) continue;
-            try { return Instant.parse(c.toString()); } catch (Exception ignored) {}
+    // ============== helpers (kept stylistically consistent with MatrixUiController) ==============
+
+    private String safeLatest() {
+        try {
+            return client.latestBlob(CONTAINER, FALLBACK);
+        } catch (Exception e) {
+            return FALLBACK;
         }
+    }
+
+    private static String resolveUpn(OidcUser oidc, OAuth2User oauth2) {
+        if (oidc != null) {
+            String v = firstNonBlank(
+                    oidc.getClaimAsString("upn"),
+                    oidc.getClaimAsString("preferred_username"),
+                    oidc.getEmail(),
+                    oidc.getName()
+            );
+            if (v != null) return v;
+        }
+        if (oauth2 != null) {
+            String v = firstNonBlank(
+                    (String) oauth2.getAttributes().get("upn"),
+                    (String) oauth2.getAttributes().get("preferred_username"),
+                    (String) oauth2.getAttributes().get("email"),
+                    oauth2.getName()
+            );
+            if (v != null) return v;
+        }
+        Authentication a = SecurityContextHolder.getContext().getAuthentication();
+        return a != null ? a.getName() : "unknown";
+    }
+
+    private static String localPart(String s) {
+        if (s == null) return "unknown";
+        int at = s.indexOf('@');
+        return at > 0 ? s.substring(0, at) : s;
+    }
+
+    private static String firstNonBlank(String... vals) {
+        for (String v : vals) if (v != null && !v.isBlank()) return v;
         return null;
     }
 
-    /** Audit log: one JSON line per payment attempt */
-    private void audit(String outcome,
-                       String correlationId,
-                       String principal,
-                       PaymentRequest form,
-                       Integer upstreamStatus,
-                       Object upstreamBody) {
+    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
+
+    /** Amount must be >0 and have no fractional part. */
+    private static boolean isPositiveInteger(BigDecimal amt) {
+        if (amt == null) return false;
+        if (amt.signum() <= 0) return false;
+        return amt.stripTrailingZeros().scale() <= 0;
+    }
+
+    private String toJson(Object value) {
         try {
-            String resultStatus = null, resultNote = null;
-            if (upstreamBody instanceof Map<?, ?> map) {
-                Object s = map.get("status"); if (s != null) resultStatus = String.valueOf(s);
-                Object n = map.get("note");   if (n != null) resultNote   = String.valueOf(n);
-            }
-
-            Map<String, Object> evt = new LinkedHashMap<>();
-            evt.put("ts", Instant.now().toString());
-            evt.put("correlationId", correlationId);
-            evt.put("outcome", outcome);
-            evt.put("principal", principal);
-
-            if (form != null) {
-                safePut(evt, "nodeA", form.getNode_a());
-                safePut(evt, "nodeB", form.getNode_b());
-                if (form.getAmount() != null)
-                    safePut(evt, "amount", form.getAmount().toPlainString());
-                safePut(evt, "blob", form.getBlob_name());
-                safePut(evt, "container", form.getContainer());
-                safePut(evt, "outBase", form.getOut_base());
-            }
-
-            if (upstreamStatus != null) safePut(evt, "upstreamStatus", upstreamStatus);
-            safePut(evt, "resultStatus", resultStatus);
-            safePut(evt, "resultNote", resultNote);
-
-            AUDIT.info(objectToJsonSafe(evt));
-        } catch (Exception e) {
-            LOG.warn("Audit logging failed: {}", e.toString());
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            return "null";
         }
     }
 
-    private static void safePut(Map<String, Object> m, String k, Object v) {
-        if (v != null) m.put(k, v);
-    }
+    // --- form object (kept local for UI binding, mirrors PaymentRequest fields we use) ---
+    public static class PaymentForm {
+        @NotBlank private String blob_name; // authoritative
+        @NotBlank private String node_a;    // authoritative (UPN local-part)
+        @NotBlank private String node_b;    // user-entered
+        @NotBlank private String container; // authoritative
+        @NotBlank private String out_base;  // authoritative (must equal blob_name)
+        private BigDecimal amount;          // user-entered (must be integer >0)
 
-    private String objectToJsonSafe(Object o) {
-        try { return objectMapper.writeValueAsString(o); }
-        catch (JsonProcessingException e) { return "{\"_json\":\"error\"}"; }
-    }
-
-    private static String escape(String s) {
-        return s == null ? "" : s.replace("\"", "\\\"");
-    }
-
-    /**
-     * Prefer preferred_username/email, then strip domain part (everything after '@').
-     * Falls back to name/subject; returns "unknown-user" if none available.
-     */
-    private String resolveCurrentUser(OidcUser oidc, OAuth2User oauth2) {
-        String raw = null;
-
-        if (oidc != null) {
-            Object preferred = oidc.getClaims().get("preferred_username");
-            if (preferred instanceof String s && !s.isBlank()) raw = s;
-            else if (oidc.getEmail() != null && !oidc.getEmail().isBlank()) raw = oidc.getEmail();
-            else if (oidc.getFullName() != null && !oidc.getFullName().isBlank()) raw = oidc.getFullName();
-            else if (oidc.getSubject() != null && !oidc.getSubject().isBlank()) raw = oidc.getSubject();
-        }
-
-        if ((raw == null || raw.isBlank()) && oauth2 != null) {
-            Object preferred = oauth2.getAttributes().get("preferred_username");
-            if (preferred instanceof String s && !s.isBlank()) raw = s;
-            else {
-                Object email = oauth2.getAttributes().get("email");
-                if (email instanceof String s && !s.isBlank()) raw = s;
-                else {
-                    Object name = oauth2.getAttributes().get("name");
-                    if (name instanceof String s && !s.isBlank()) raw = s;
-                }
-            }
-        }
-
-        if (raw == null || raw.isBlank()) return "unknown-user";
-
-        int at = raw.indexOf('@');
-        if (at > 0) raw = raw.substring(0, at);
-        return raw.trim();
-    }
-
-    private PaymentRequest scrubForFlash(PaymentRequest form) {
-        PaymentRequest copy = new PaymentRequest();
-        copy.setBlob_name(form.getBlob_name());
-        copy.setContainer(container);
-        copy.setNode_a(form.getNode_a());
-        copy.setOut_base(form.getBlob_name()); // mirror in flash too
-        copy.setNode_b(form.getNode_b());
-        copy.setAmount(form.getAmount());
-        return copy;
+        public String getBlob_name() { return blob_name; }
+        public void setBlob_name(String blob_name) { this.blob_name = blob_name; }
+        public String getNode_a() { return node_a; }
+        public void setNode_a(String node_a) { this.node_a = node_a; }
+        public String getNode_b() { return node_b; }
+        public void setNode_b(String node_b) { this.node_b = node_b; }
+        public String getContainer() { return container; }
+        public void setContainer(String container) { this.container = container; }
+        public String getOut_base() { return out_base; }
+        public void setOut_base(String out_base) { this.out_base = out_base; }
+        public BigDecimal getAmount() { return amount; }
+        public void setAmount(BigDecimal amount) { this.amount = amount; }
     }
 }
+
 

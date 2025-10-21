@@ -2,42 +2,24 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
   <meta charset="UTF-8" />
-  <title>Payment v21102025</title>
+  <title>Payment</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #ffffff;
-      --text: #0b1220;
-      --muted: #6b7280;
-      --accent: #2563eb;
-      --accent-2: #0ea5e9;
-      --shadow: 0 12px 30px rgba(15, 23, 42, .12);
-      --radius: 16px;
-      --success-bg: #ecfdf5;
-      --success-text: #065f46;
-      --error-bg: #fef2f2;
-      --error-text: #991b1b;
+      --bg: #0f172a; --card: #ffffff; --text: #0b1220; --muted: #6b7280;
+      --accent: #2563eb; --accent-2: #0ea5e9; --shadow: 0 12px 30px rgba(15, 23, 42, .12);
+      --radius: 16px; --success-bg: #ecfdf5; --success-text: #065f46; --error-bg: #fef2f2; --error-text: #991b1b;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
       color: var(--text);
-      background:
-        radial-gradient(1200px 1200px at 20% -10%, rgba(37,99,235,.25), transparent 40%),
-        radial-gradient(1000px 1000px at 120% 0%, rgba(14,165,233,.18), transparent 40%),
-        #f5f7fb;
-    }
+      background: radial-gradient(1200px 1200px at 20% -10%, rgba(37,99,235,.25), transparent 40%),
+                  radial-gradient(1000px 1000px at 120% 0%, rgba(14,165,233,.18), transparent 40%), #f5f7fb; }
     .shell { max-width: 860px; margin: 48px auto; padding: 0 20px; }
-    .header {
-      background: linear-gradient(135deg, var(--bg), #1e293b);
-      color: #fff; border-radius: var(--radius); padding: 24px 28px;
-      box-shadow: var(--shadow); display:flex; align-items:center; justify-content:space-between; gap:16px;
-    }
+    .header { background: linear-gradient(135deg, var(--bg), #1e293b); color: #fff; border-radius: var(--radius);
+      padding: 24px 28px; box-shadow: var(--shadow); display:flex; align-items:center; justify-content:space-between; gap:16px; }
     .brand { font-weight: 700; letter-spacing: .2px; display:flex; align-items:center; gap:.75rem; }
     .brand-logo { width:42px; height:auto; display:block; }
     .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px; margin-top: 22px; }
@@ -48,20 +30,15 @@
     label { font-weight:600; margin-bottom:6px; }
     input { padding:12px; border:1px solid #e5e7eb; border-radius:12px; }
     input[readonly] { background:#f9fafb; color:#6b7280; }
-    .btn {
-      display:inline-flex; align-items:center; gap:.5rem; padding: 12px 18px; border-radius: 12px;
-      text-decoration:none; font-weight: 600; border: 1px solid transparent; cursor:pointer;
-    }
+    .btn { display:inline-flex; align-items:center; gap:.5rem; padding: 12px 18px; border-radius: 12px;
+      text-decoration:none; font-weight: 600; border: 1px solid transparent; cursor:pointer; }
     .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; box-shadow: 0 10px 20px rgba(37,99,235,.25); }
     .btn-link { background:#fff; border:1px solid #e5e7eb; color: var(--accent); }
     pre.code { background:#0f172a; color:#e2e8f0; border-radius:12px; padding:14px; overflow:auto; }
-
-    .banner {
-      display:block; margin: 18px auto 0; padding: 14px 16px; border-radius: 12px;
-      border: 1px solid transparent; max-width: 860px;
-    }
+    .banner { display:block; margin: 18px auto 0; padding: 14px 16px; border-radius: 12px; border: 1px solid transparent; max-width: 860px; }
     .banner-success { background: var(--success-bg); color: var(--success-text); border-color: #a7f3d0; }
     .banner-error { background: var(--error-bg); color: var(--error-text); border-color: #fecaca; }
+    .invalid { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
   </style>
 </head>
 <body>
@@ -99,20 +76,28 @@
             <label>Node A *</label>
             <input th:field="*{node_a}" readonly />
           </div>
+
           <div class="field">
             <label>Node B *</label>
-            <input th:field="*{node_b}" placeholder="Enter recipient node" required />
+            <input th:field="*{node_b}"
+                   placeholder="Enter recipient node"
+                   required
+                   th:classappend="${#fields.hasErrors('node_b')} ? ' invalid' : ''" />
+            <div style="color:#b91c1c; font-size:13px; margin-top:6px"
+                 th:if="${#fields.hasErrors('node_b')}"
+                 th:errors="*{node_b}">Node B error</div>
           </div>
+
           <div class="field">
-            <label>Amount * (integer > 0)</label>
+            <label>Amount * (integer &gt; 0)</label>
             <input th:field="*{amount}"
-                   type="number"
-                   step="1"
-                   min="1"
-                   inputmode="numeric"
-                   pattern="\d+"
-                   placeholder="100"
-                   required />
+                   type="number" step="1" min="1"
+                   inputmode="numeric" pattern="\\d+"
+                   placeholder="100" required
+                   th:classappend="${#fields.hasErrors('amount')} ? ' invalid' : ''" />
+            <div style="color:#b91c1c; font-size:13px; margin-top:6px"
+                 th:if="${#fields.hasErrors('amount')}"
+                 th:errors="*{amount}">Amount error</div>
           </div>
         </div>
 
@@ -129,13 +114,16 @@
           <a class="btn btn-link" th:href="@{/home}">Cancel</a>
         </div>
 
+        <!-- Server-side form-level error -->
         <div style="color:#b91c1c;margin-top:10px" th:if="${error}" th:text="${error}"></div>
       </form>
     </main>
 
+    <!-- Success / Error banners -->
     <div th:if="${success}" class="banner banner-success" th:text="${success}"></div>
     <div th:if="${error}" class="banner banner-error" th:text="${error}"></div>
 
+    <!-- Result -->
     <section class="card" th:if="${resultJson}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
       <script type="application/json" id="paymentResult" th:text="${resultJson}">{}</script>
@@ -181,10 +169,7 @@
     let allowNativeSubmit = false;
 
     form.addEventListener('submit', (e) => {
-      if (allowNativeSubmit) {
-        allowNativeSubmit = false;
-        return;
-      }
+      if (allowNativeSubmit) { allowNativeSubmit = false; return; }
       e.preventDefault();
 
       sum('sumBlob',      val('blob_name'));
@@ -207,10 +192,7 @@
     }
 
     yesBtn.addEventListener('click', () => {
-      if (!form.reportValidity()) {
-        closeModal();
-        return;
-      }
+      if (!form.reportValidity()) { closeModal(); return; }
       yesBtn.disabled = true;
       closeModal();
       allowNativeSubmit = true;
@@ -226,6 +208,7 @@
       }
     });
 
+    // Pretty print JSON result
     (function initResult() {
       const scriptEl = document.getElementById('paymentResult');
       if (!scriptEl) return;
@@ -238,3 +221,4 @@
   </script>
 </body>
 </html>
+
