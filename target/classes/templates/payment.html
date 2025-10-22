@@ -123,7 +123,12 @@
     <div th:if="${success}" class="banner banner-success" th:text="${success}"></div>
     <div th:if="${error}" class="banner banner-error" th:text="${error}"></div>
 
-    <!-- Result -->
+    <!-- ✅ NEW: Option 3 – Modern Info Card -->
+    <section class="card" th:if="${resultJson}" id="resultCardSection" style="display:none; margin-top:18px;">
+      <div id="resultCard"></div>
+    </section>
+
+    <!-- Existing Result (kept intact) -->
     <section class="card" th:if="${resultJson}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
       <script type="application/json" id="paymentResult" th:text="${resultJson}">{}</script>
@@ -208,18 +213,51 @@
       }
     });
 
-    // Pretty print JSON result
+    // Pretty print JSON result + build Info Card
     (function initResult() {
       const scriptEl = document.getElementById('paymentResult');
       if (!scriptEl) return;
+
       const raw = scriptEl.textContent || '{}';
       let json = null, pretty = raw;
+
       try { json = JSON.parse(raw); pretty = JSON.stringify(json, null, 2); } catch (_){}
+
+      // Keep existing JSON pretty print
       const pre = document.getElementById('resultJson');
       if (pre) pre.textContent = pretty;
+
+      // Build the modern info card (Option 3)
+      const section = document.getElementById('resultCardSection');
+      const mount = document.getElementById('resultCard');
+      if (!section || !mount || !json) return;
+
+      const isOk = (json.status || '').toString().toLowerCase() === 'ok';
+      const title = isOk ? '✅ Payment Successful' : '❌ Payment Failed';
+      const titleColor = isOk ? 'var(--success-text)' : 'var(--error-text)';
+      const textColor = '#334155';
+
+      const written = json.written_blob || json.file || json.result || '—';
+
+      mount.innerHTML = `
+        <div style="max-width: 520px; margin: 0 auto;">
+          <div class="card" style="margin-top:0; border-radius: 12px; box-shadow: var(--shadow);">
+            <div class="card-body">
+              <h5 class="card-title" style="margin:0 0 6px 0; color:${titleColor}; font-size:20px;">${title}</h5>
+              <p class="card-text" style="margin:0 0 12px 0; color:${textColor};">Your transaction was processed.</p>
+              <ul style="padding-left:18px; margin:0;">
+                <li><strong>Status:</strong> ${String(json.status || 'unknown').toUpperCase()}</li>
+                <li><strong>Result file:</strong> <code>${written}</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      `;
+      section.style.display = 'block';
     })();
   </script>
 </body>
 </html>
+
 
 
