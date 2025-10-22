@@ -52,31 +52,27 @@
       <h1 style="margin-top:0">Find Cycle</h1>
       <p class="muted">Find A → B → shortest path back to A. Optionally apply settlement.</p>
 
-      <!-- controller should add model attribute 'cycleForm' -->
-      <form th:action="@{/matrix/cycle/find}" method="post" th:object="${cycleForm}">
+      <!-- NOTE: posts to /matrix/cycle/find/ui (UI controller), not the REST endpoint -->
+      <form th:action="@{/matrix/cycle/find/ui}" method="post" th:object="${cycleForm}">
         <div class="row">
-          <!-- blob_name -->
           <div class="field">
             <label>Blob name (fixed)</label>
             <input type="hidden" th:field="*{blob_name}">
             <div class="readonly-value" th:text="*{blob_name}">loading…</div>
           </div>
 
-          <!-- out_base -->
           <div class="field">
             <label>Out base (fixed)</label>
             <input type="hidden" th:field="*{out_base}">
             <div class="readonly-value" th:text="*{out_base}">loading…</div>
           </div>
 
-          <!-- container -->
           <div class="field">
             <label>Container (fixed)</label>
             <input type="hidden" th:field="*{container}" th:value="'matrices'">
             <div class="readonly-value">matrices</div>
           </div>
 
-          <!-- node_a -->
           <div class="field">
             <label>Node A (fixed)</label>
             <input type="hidden" th:field="*{node_a}">
@@ -85,13 +81,11 @@
         </div>
 
         <div class="row">
-          <!-- node_b -->
           <div class="field">
             <label>Node B *</label>
             <input th:field="*{node_b}" placeholder="Enter destination node" required>
           </div>
 
-          <!-- apply_settlement -->
           <div class="field" style="align-items:flex-start">
             <label class="muted">Apply settlement (optional)</label>
             <input type="checkbox" th:field="*{apply_settlement}">
@@ -108,12 +102,10 @@
       </form>
     </main>
 
-    <!-- ✅ FIXED RESULT SECTION -->
+    <!-- Result -->
     <section class="card" th:if="${result}" style="margin-top:18px">
       <h2 style="margin-top:0;">Result</h2>
       <pre class="code" id="result-json"></pre>
-
-      <!-- Serialize the Spring model variable 'result' safely -->
       <script th:inline="javascript">
       /*<![CDATA[*/
         const result = /*[[${result}]]*/ null;
@@ -125,5 +117,6 @@
   </div>
 </body>
 </html>
+
 
 
