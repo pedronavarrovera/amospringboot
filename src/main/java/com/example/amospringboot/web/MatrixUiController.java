@@ -2,231 +2,255 @@
 package com.example.amospringboot.web;
 
 import com.example.amospringboot.matrix.dto.CycleFindRequest;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.WebDataBinder;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.regex.Pattern;
 
 @Controller
+@RequestMapping("/matrix/cycle")
 public class MatrixUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatrixUiController.class);
 
+    private static final String CONTAINER = "matrices";
+    private static final String FALLBACK  = "initial-matrix.b64";
+    private static final Pattern TS_TAIL  = Pattern.compile("(-\\d{8}-\\d{6})+$");
+
     private final WebClient matrixWebClient;
-
-    // Fallback defaults if “latest” cannot be retrieved
-    @Value("${amo.matrix.blob-name:initial-matrix-latest.b64}")
-    private String fallbackBlobName;
-
-    @Value("${amo.matrix.out-base:initial-matrix-latest}")
-    private String fallbackOutBase;
 
     public MatrixUiController(WebClient matrixWebClient) {
         this.matrixWebClient = matrixWebClient;
     }
 
-    @GetMapping("/matrix/cycle/find/ui")
+    /** Prevent tampering with authoritative fields. */
+    @InitBinder("cycleForm")
+    public void disallowAuthoritative(WebDataBinder binder) {
+        binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
+    }
+
+    @GetMapping("/find/ui")
     public String show(Model model,
                        @AuthenticationPrincipal OidcUser oidc,
-                       @AuthenticationPrincipal OAuth2User oauth2) {
+                       @AuthenticationPrincipal OAuth2User oauth2,
+                       @RequestParam(value = "blob", required = false) String blobOverride) {
 
         CycleFindRequest form = (CycleFindRequest) model.getAttribute("cycleForm");
         if (form == null) form = new CycleFindRequest();
 
-        // Authoritative server-side values
-        form.setContainer("matrices");
-        form.setNode_a(extractLocalUserId(oidc, oauth2));
+        // authoritative values
+        form.setContainer(CONTAINER);
+        form.setNode_a(localPart(resolveUpn(oidc, oauth2)));
 
-        LatestMatrix latest = fetchLatestMatrix();
-        form.setBlob_name(latest.blobName());
-        form.setOut_base(latest.outBase());
+        // blob/out_base defaults
+        String latest = (blobOverride != null && !blobOverride.isBlank()) ? blobOverride : safeLatestBlob();
+        form.setBlob_name(latest);
+        form.setOut_base(normalizeOutBase(latest));
 
         model.addAttribute("cycleForm", form);
         return "matrix/cycle-find";
     }
 
-    @PostMapping(value = "/matrix/cycle/find/ui", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public String submit(@ModelAttribute("cycleForm") CycleFindRequest form,
+    @PostMapping(value = "/find/ui", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    public String submit(@Valid @ModelAttribute("cycleForm") CycleFindRequest form,
+                         BindingResult binding,
                          Model model,
                          @AuthenticationPrincipal OidcUser oidc,
                          @AuthenticationPrincipal OAuth2User oauth2) {
 
-        // Re-assert authoritative values (ignore client-provided hidden inputs)
-        form.setContainer("matrices");
-        form.setNode_a(extractLocalUserId(oidc, oauth2));
+        // authoritative reassertion
+        form.setContainer(CONTAINER);
+        form.setNode_a(localPart(resolveUpn(oidc, oauth2)));
+        String latest = safeLatestBlob();
+        form.setBlob_name(latest);
+        form.setOut_base(normalizeOutBase(latest));
 
-        LatestMatrix latest = fetchLatestMatrix();
-        form.setBlob_name(latest.blobName());
-        form.setOut_base(latest.outBase());
-
-        // Minimal UI validation: only Node B is user-entered
+        if (binding.hasErrors()) {
+            model.addAttribute("error", "Please correct the highlighted fields.");
+            return "matrix/cycle-find";
+        }
         if (form.getNode_b() == null || form.getNode_b().isBlank()) {
             model.addAttribute("error", "Please enter Node B.");
             return "matrix/cycle-find";
         }
 
         try {
-            Map<String, Object> payload = new HashMap<>();
+            Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("blob_name", form.getBlob_name());
             payload.put("node_a", form.getNode_a());
             payload.put("node_b", form.getNode_b());
-            if (form.getContainer() != null)        payload.put("container", form.getContainer());
-            if (form.getApply_settlement() != null) payload.put("apply_settlement", form.getApply_settlement());
-            if (form.getOut_base() != null)         payload.put("out_base", form.getOut_base());
+            payload.put("container", form.getContainer());
+            if (form.getApply_settlement() != null)
+                payload.put("apply_settlement", form.getApply_settlement());
+            payload.put("out_base", form.getOut_base());
 
             Map<String, Object> result = matrixWebClient.post()
                     .uri("/matrix/cycle/find")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(payload)
                     .retrieve()
+                    .onStatus(HttpStatusCode::isError, resp -> resp.createException())
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block();
 
             model.addAttribute("result", result);
         } catch (WebClientResponseException ex) {
-            LOG.error("Cycle find via UI failed: {} {}", ex.getRawStatusCode(), ex.getResponseBodyAsString(), ex);
-            model.addAttribute("error", "Search failed: " + ex.getStatusCode() +
+            LOG.error("Cycle find failed: {} {}", ex.getStatusCode().value(), ex.getResponseBodyAsString(), ex);
+            model.addAttribute("error",
+                    "Search failed: " + ex.getStatusCode().value() +
                     (ex.getResponseBodyAsString() != null ? " — " + ex.getResponseBodyAsString() : ""));
         } catch (Exception ex) {
-            LOG.error("Cycle find via UI failed", ex);
-            model.addAttribute("error", "Search failed: " +
-                    (ex.getMessage() != null ? ex.getMessage() : "See server logs."));
+            LOG.error("Cycle find failed", ex);
+            model.addAttribute("error",
+                    "Search failed: " + (ex.getMessage() != null ? ex.getMessage() : "See server logs."));
         }
 
         return "matrix/cycle-find";
     }
 
-    /* -------------------- helpers -------------------- */
+    /* ===================== helpers ===================== */
 
-    /** Extract a stable local user id from the authenticated principal, stripping any domain. */
-    private String extractLocalUserId(OidcUser oidc, OAuth2User oauth2) {
-        String candidate = null;
+    /** Calls /matrix/blobs?container=matrices and returns the latest timestamped blob. */
+    private String safeLatestBlob() {
+        try {
+            Object body = matrixWebClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/matrix/blobs")
+                            .queryParam("container", CONTAINER)
+                            .build())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, resp -> resp.createException())
+                    .bodyToMono(Object.class)
+                    .block();
 
+            List<String> names = extractBlobNames(body);
+            if (names.isEmpty()) return FALLBACK;
+
+            names.sort((a, b) -> Long.compare(extractSortableTs(b), extractSortableTs(a)));
+            String best = names.get(0);
+            return (best == null || best.isBlank()) ? FALLBACK : best;
+        } catch (Exception e) {
+            LOG.debug("safeLatestBlob(): fallback due to {}", e.toString());
+            return FALLBACK;
+        }
+    }
+
+    /** Normalize out_base from blob name. */
+    private static String normalizeOutBase(String blobName) {
+        if (blobName == null || blobName.isBlank()) return "matrix-update";
+        String base = blobName.endsWith(".b64")
+                ? blobName.substring(0, blobName.length() - 4)
+                : blobName;
+        return TS_TAIL.matcher(base).replaceAll("");
+    }
+
+    /** Extract local part of an email/UPN. */
+    private static String localPart(String s) {
+        if (s == null) return "unknown";
+        int at = s.indexOf('@');
+        return at > 0 ? s.substring(0, at) : s;
+    }
+
+    /** Resolve UPN/email reliably. */
+    private static String resolveUpn(OidcUser oidc, OAuth2User oauth2) {
         if (oidc != null) {
-            candidate = firstNonBlank(
-                    safe(oidc.getPreferredUsername()),
-                    safe(oidc.getEmail()),
-                    safeAttr(oidc, "upn"),
-                    safeAttr(oidc, "unique_name"),
-                    safeAttr(oidc, "name"),
-                    safeAttr(oidc, "preferred_username")
-            );
+            String v = firstNonBlank(
+                    oidc.getClaimAsString("upn"),
+                    oidc.getClaimAsString("preferred_username"),
+                    oidc.getEmail(),
+                    oidc.getName());
+            if (v != null) return v;
         }
-
-        if (candidate == null && oauth2 != null) {
+        if (oauth2 != null) {
             Map<String, Object> a = oauth2.getAttributes();
-            candidate = firstNonBlank(
-                    safe(obj(a.get("preferred_username"))),
-                    safe(obj(a.get("upn"))),
-                    safe(obj(a.get("unique_name"))),
-                    safe(obj(a.get("email"))),
-                    safe(obj(a.get("login"))),
-                    safe(obj(a.get("name"))),
-                    safe(oauth2.getName())
-            );
+            String v = firstNonBlank(
+                    asString(a.get("upn")),
+                    asString(a.get("preferred_username")),
+                    asString(a.get("email")),
+                    oauth2.getName());
+            if (v != null) return v;
         }
-
-        if (candidate == null || candidate.isBlank()) {
-            return "amo";
-        }
-
-        return localPart(candidate);
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null ? auth.getName() : "unknown";
     }
 
-    /** If looks like an email/UPN, return local-part; else return as-is. */
-    private String localPart(String v) {
-        int at = v.indexOf('@');
-        if (at > 0) return v.substring(0, at);
-        return v;
+    private static String asString(Object o) {
+        return (o != null) ? o.toString() : null;
     }
 
-    private String safe(String s) {
-        return (s == null || s.isBlank()) ? null : s;
-    }
-
-    private String safeAttr(OidcUser user, String key) {
-        if (user == null) return null;
-        Object val = user.getClaims() != null ? user.getClaims().get(key) : null;
-        return val == null ? null : safe(String.valueOf(val));
-    }
-
-    private String obj(Object o) {
-        return o == null ? null : Objects.toString(o, null);
-    }
-
-    private String firstNonBlank(String... vals) {
+    private static String firstNonBlank(String... vals) {
         if (vals == null) return null;
-        for (String v : vals) if (v != null && !v.isBlank()) return v;
+        for (String v : vals)
+            if (v != null && !v.isBlank()) return v;
         return null;
     }
 
-    /**
-     * Try to fetch the "latest matrix" metadata (blob_name & out_base),
-     * with safe fallbacks. Note: fixes compile errors by using HttpStatusCode::isError
-     * and returning clientResponse.createException() directly.
-     */
-    private LatestMatrix fetchLatestMatrix() {
-        String[] candidatePaths = new String[] {
-                "/payment/template/matrix/latest",
-                "/payment/template/latest",
-                "/matrix/template/latest",
-                "/matrix/latest",
-                "/matrix/meta/latest"
-        };
+    /** Extract blob names from either a List<String> or a Map<String, Object> with "blobs". */
+    private static List<String> extractBlobNames(Object body) {
+        if (body == null) return Collections.emptyList();
 
-        for (String path : candidatePaths) {
-            try {
-                Map<String, Object> resp = matrixWebClient.get()
-                        .uri(path)
-                        .accept(MediaType.APPLICATION_JSON)
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, clientResponse -> clientResponse.createException())
-                        .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                        .block();
-
-                if (resp == null || resp.isEmpty()) continue;
-
-                String blob = firstNonBlank(
-                        obj(resp.get("blob_name")),
-                        obj(resp.get("blobName")),
-                        obj(resp.get("latest_blob_name")),
-                        obj(resp.get("latestBlobName"))
-                );
-                String out = firstNonBlank(
-                        obj(resp.get("out_base")),
-                        obj(resp.get("outBase")),
-                        obj(resp.get("latest_out_base")),
-                        obj(resp.get("latestOutBase"))
-                );
-
-                if (blob != null && out != null) {
-                    return new LatestMatrix(blob, out);
-                }
-            } catch (Exception ex) {
-                LOG.debug("Could not fetch latest matrix from candidate {}: {}", path, ex.toString());
-            }
+        if (body instanceof List<?>) {
+            return ((List<?>) body).stream()
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
+                    .toList();
         }
 
-        // Fallback to configuration
-        return new LatestMatrix(fallbackBlobName, fallbackOutBase);
+        if (body instanceof Map<?, ?> map) {
+            Object blobs = map.get("blobs");
+            if (blobs instanceof List<?>) {
+                return ((List<?>) blobs).stream()
+                        .filter(Objects::nonNull)
+                        .map(Object::toString)
+                        .toList();
+            }
+        }
+        return Collections.emptyList();
     }
 
-    private record LatestMatrix(String blobName, String outBase) {}
+    /** Parse sortable timestamp from blob name like initial-matrix-YYYYMMDD-HHMMSS.b64. */
+    private static long extractSortableTs(String name) {
+        if (name == null) return 0L;
+        int dot = name.lastIndexOf('.');
+        String stem = (dot > 0 ? name.substring(0, dot) : name);
+
+        int lastDash = stem.lastIndexOf('-');
+        if (lastDash < 0) return 0L;
+        String tail = stem.substring(lastDash + 1);
+        if (tail.matches("\\d{6}")) {
+            int prevDash = stem.lastIndexOf('-', lastDash - 1);
+            if (prevDash > 0) {
+                String ymd = stem.substring(prevDash + 1, lastDash);
+                if (ymd.matches("\\d{8}")) {
+                    try {
+                        return Long.parseLong(ymd + tail);
+                    } catch (NumberFormatException ignore) {
+                        return 0L;
+                    }
+                }
+            }
+        }
+        if (stem.endsWith("-latest")) return 1L;
+        return 0L;
+    }
 }
+
 
