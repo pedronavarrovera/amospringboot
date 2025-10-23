@@ -10,6 +10,8 @@ import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 import java.net.URI;
 
@@ -50,6 +52,24 @@ public class GlobalErrorHandler {
         var pd = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
         pd.setTitle("Unexpected error");
         pd.setType(URI.create("about:blank#internal"));
+        return pd;
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail handleNoResource(NoResourceFoundException ex) {
+        var pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        pd.setTitle("Not found");
+        pd.setDetail("Endpoint or resource not found");
+        pd.setType(URI.create("about:blank#not-found"));
+        return pd;
+    }
+    // (While here) return 405 instead of 500 for wrong method:
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ProblemDetail handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex) {
+        var pd = ProblemDetail.forStatus(HttpStatus.METHOD_NOT_ALLOWED);
+        pd.setTitle("Method not allowed");
+        pd.setDetail(ex.getMessage());
+        pd.setType(URI.create("about:blank#method-not-allowed"));
         return pd;
     }
 }

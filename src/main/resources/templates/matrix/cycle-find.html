@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>Find Cycle</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" th:href="@{/favicon.ico}">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     :root{
@@ -108,15 +109,18 @@
       <pre class="code" id="result-json"></pre>
       <script th:inline="javascript">
       /*<![CDATA[*/
-        const result = /*[[${result}]]*/ null;
-        const el = document.getElementById('result-json');
-        el.textContent = JSON.stringify(result, null, 2);
+        (function(){
+          const data = /*[[${result}]]*/ null;
+          const el = document.getElementById('result-json');
+          try {
+            el.textContent = JSON.stringify(data, null, 2);
+          } catch (e) {
+            el.textContent = String(data);
+          }
+        })();
       /*]]>*/
       </script>
     </section>
   </div>
 </body>
 </html>
-
-
-
