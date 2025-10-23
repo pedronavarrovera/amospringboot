@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -16,9 +17,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 @Controller
 public class MatrixUiController {
@@ -27,12 +30,12 @@ public class MatrixUiController {
 
     private final WebClient matrixWebClient;
 
-    // Deploy-time defaults (override in application.yml / env)
+    // Fallback defaults if “latest” cannot be retrieved
     @Value("${amo.matrix.blob-name:initial-matrix-latest.b64}")
-    private String defaultBlobName;
+    private String fallbackBlobName;
 
     @Value("${amo.matrix.out-base:initial-matrix-latest}")
-    private String defaultOutBase;
+    private String fallbackOutBase;
 
     public MatrixUiController(WebClient matrixWebClient) {
         this.matrixWebClient = matrixWebClient;
@@ -44,15 +47,15 @@ public class MatrixUiController {
                        @AuthenticationPrincipal OAuth2User oauth2) {
 
         CycleFindRequest form = (CycleFindRequest) model.getAttribute("cycleForm");
-        if (form == null) {
-            form = new CycleFindRequest();
-        }
+        if (form == null) form = new CycleFindRequest();
 
-        // Authoritative server-side values (never rely on the browser to send hidden inputs)
+        // Authoritative server-side values
         form.setContainer("matrices");
-        form.setBlob_name(defaultBlobName);
-        form.setOut_base(defaultOutBase);
-        form.setNode_a(resolveNodeA(oidc, oauth2));
+        form.setNode_a(extractLocalUserId(oidc, oauth2));
+
+        LatestMatrix latest = fetchLatestMatrix();
+        form.setBlob_name(latest.blobName());
+        form.setOut_base(latest.outBase());
 
         model.addAttribute("cycleForm", form);
         return "matrix/cycle-find";
@@ -64,13 +67,15 @@ public class MatrixUiController {
                          @AuthenticationPrincipal OidcUser oidc,
                          @AuthenticationPrincipal OAuth2User oauth2) {
 
-        // Re-assert authoritative values on POST (ignore any client-provided values)
+        // Re-assert authoritative values (ignore client-provided hidden inputs)
         form.setContainer("matrices");
-        form.setBlob_name(defaultBlobName);
-        form.setOut_base(defaultOutBase);
-        form.setNode_a(resolveNodeA(oidc, oauth2));
+        form.setNode_a(extractLocalUserId(oidc, oauth2));
 
-        // Minimal UI validation: only Node B is typed by the user here
+        LatestMatrix latest = fetchLatestMatrix();
+        form.setBlob_name(latest.blobName());
+        form.setOut_base(latest.outBase());
+
+        // Minimal UI validation: only Node B is user-entered
         if (form.getNode_b() == null || form.getNode_b().isBlank()) {
             model.addAttribute("error", "Please enter Node B.");
             return "matrix/cycle-find";
@@ -85,7 +90,6 @@ public class MatrixUiController {
             if (form.getApply_settlement() != null) payload.put("apply_settlement", form.getApply_settlement());
             if (form.getOut_base() != null)         payload.put("out_base", form.getOut_base());
 
-            // Call REST backend: POST /matrix/cycle/find (JSON)
             Map<String, Object> result = matrixWebClient.post()
                     .uri("/matrix/cycle/find")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -95,6 +99,10 @@ public class MatrixUiController {
                     .block();
 
             model.addAttribute("result", result);
+        } catch (WebClientResponseException ex) {
+            LOG.error("Cycle find via UI failed: {} {}", ex.getRawStatusCode(), ex.getResponseBodyAsString(), ex);
+            model.addAttribute("error", "Search failed: " + ex.getStatusCode() +
+                    (ex.getResponseBodyAsString() != null ? " — " + ex.getResponseBodyAsString() : ""));
         } catch (Exception ex) {
             LOG.error("Cycle find via UI failed", ex);
             model.addAttribute("error", "Search failed: " +
@@ -104,24 +112,121 @@ public class MatrixUiController {
         return "matrix/cycle-find";
     }
 
-    /** Derive a stable local identifier for node_a from the authenticated principal */
-    private String resolveNodeA(OidcUser oidc, OAuth2User oauth2) {
+    /* -------------------- helpers -------------------- */
+
+    /** Extract a stable local user id from the authenticated principal, stripping any domain. */
+    private String extractLocalUserId(OidcUser oidc, OAuth2User oauth2) {
+        String candidate = null;
+
         if (oidc != null) {
-            String preferred = oidc.getPreferredUsername();
-            if (preferred != null && !preferred.isBlank()) return preferred;
-            String email = oidc.getEmail();
-            if (email != null && email.contains("@")) return email.substring(0, email.indexOf('@'));
+            candidate = firstNonBlank(
+                    safe(oidc.getPreferredUsername()),
+                    safe(oidc.getEmail()),
+                    safeAttr(oidc, "upn"),
+                    safeAttr(oidc, "unique_name"),
+                    safeAttr(oidc, "name"),
+                    safeAttr(oidc, "preferred_username")
+            );
         }
-        if (oauth2 != null) {
-            Object preferred = oauth2.getAttributes().get("preferred_username");
-            if (preferred instanceof String s && !s.isBlank()) return s;
 
-            Object email = oauth2.getAttributes().get("email");
-            if (email instanceof String s && s.contains("@")) return s.substring(0, s.indexOf('@'));
-
-            Object login = oauth2.getAttributes().get("login"); // e.g., GitHub
-            if (login instanceof String s && !s.isBlank()) return s;
+        if (candidate == null && oauth2 != null) {
+            Map<String, Object> a = oauth2.getAttributes();
+            candidate = firstNonBlank(
+                    safe(obj(a.get("preferred_username"))),
+                    safe(obj(a.get("upn"))),
+                    safe(obj(a.get("unique_name"))),
+                    safe(obj(a.get("email"))),
+                    safe(obj(a.get("login"))),
+                    safe(obj(a.get("name"))),
+                    safe(oauth2.getName())
+            );
         }
-        return "amo";
+
+        if (candidate == null || candidate.isBlank()) {
+            return "amo";
+        }
+
+        return localPart(candidate);
     }
+
+    /** If looks like an email/UPN, return local-part; else return as-is. */
+    private String localPart(String v) {
+        int at = v.indexOf('@');
+        if (at > 0) return v.substring(0, at);
+        return v;
+    }
+
+    private String safe(String s) {
+        return (s == null || s.isBlank()) ? null : s;
+    }
+
+    private String safeAttr(OidcUser user, String key) {
+        if (user == null) return null;
+        Object val = user.getClaims() != null ? user.getClaims().get(key) : null;
+        return val == null ? null : safe(String.valueOf(val));
+    }
+
+    private String obj(Object o) {
+        return o == null ? null : Objects.toString(o, null);
+    }
+
+    private String firstNonBlank(String... vals) {
+        if (vals == null) return null;
+        for (String v : vals) if (v != null && !v.isBlank()) return v;
+        return null;
+    }
+
+    /**
+     * Try to fetch the "latest matrix" metadata (blob_name & out_base),
+     * with safe fallbacks. Note: fixes compile errors by using HttpStatusCode::isError
+     * and returning clientResponse.createException() directly.
+     */
+    private LatestMatrix fetchLatestMatrix() {
+        String[] candidatePaths = new String[] {
+                "/payment/template/matrix/latest",
+                "/payment/template/latest",
+                "/matrix/template/latest",
+                "/matrix/latest",
+                "/matrix/meta/latest"
+        };
+
+        for (String path : candidatePaths) {
+            try {
+                Map<String, Object> resp = matrixWebClient.get()
+                        .uri(path)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .retrieve()
+                        .onStatus(HttpStatusCode::isError, clientResponse -> clientResponse.createException())
+                        .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                        .block();
+
+                if (resp == null || resp.isEmpty()) continue;
+
+                String blob = firstNonBlank(
+                        obj(resp.get("blob_name")),
+                        obj(resp.get("blobName")),
+                        obj(resp.get("latest_blob_name")),
+                        obj(resp.get("latestBlobName"))
+                );
+                String out = firstNonBlank(
+                        obj(resp.get("out_base")),
+                        obj(resp.get("outBase")),
+                        obj(resp.get("latest_out_base")),
+                        obj(resp.get("latestOutBase"))
+                );
+
+                if (blob != null && out != null) {
+                    return new LatestMatrix(blob, out);
+                }
+            } catch (Exception ex) {
+                LOG.debug("Could not fetch latest matrix from candidate {}: {}", path, ex.toString());
+            }
+        }
+
+        // Fallback to configuration
+        return new LatestMatrix(fallbackBlobName, fallbackOutBase);
+    }
+
+    private record LatestMatrix(String blobName, String outBase) {}
 }
+
