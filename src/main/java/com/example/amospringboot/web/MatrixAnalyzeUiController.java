@@ -15,6 +15,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Controller
 @RequestMapping("/matrix/analyze")
@@ -22,10 +23,11 @@ public class MatrixAnalyzeUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatrixAnalyzeUiController.class);
 
-    // ✅ must match src/main/resources/templates/matrix/analyze.html
+    // Must match src/main/resources/templates/matrix/analyze.html
     private static final String VIEW = "matrix/analyze";
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK_BLOB = "initial-matrix.b64";
+    private static final Pattern TS_TAIL = Pattern.compile("(-\\d{8}-\\d{6})$");
 
     private final WebClient matrixWebClient;
     private final ObjectMapper objectMapper;
@@ -35,13 +37,11 @@ public class MatrixAnalyzeUiController {
         this.objectMapper = objectMapper;
     }
 
+    /** Show analyze page with authoritative defaults */
     @GetMapping(produces = MediaType.TEXT_HTML_VALUE)
     public String showAnalyze(Model model,
                               @RequestParam(value = "blob", required = false) String blobOverride) {
-        String chosenBlob = (blobOverride != null && !blobOverride.isBlank())
-                ? blobOverride
-                : safeLatestBlob();
-
+        String chosenBlob = (blobOverride != null && !blobOverride.isBlank()) ? blobOverride : safeLatestBlob();
         if (!model.containsAttribute("form")) {
             AnalyzeForm form = new AnalyzeForm();
             form.setBlob_name(chosenBlob);
@@ -51,33 +51,27 @@ public class MatrixAnalyzeUiController {
         model.addAttribute("error", null);
         model.addAttribute("result", null);
         model.addAttribute("resultJson", "{}");
-
         LOG.info("ANALYZE_UI_GET container={} blob={} override={}", CONTAINER, chosenBlob, (blobOverride == null ? "null" : blobOverride));
         return VIEW;
     }
 
+    /** Handle Analyze submit from analyze.html */
     @PostMapping(consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE, produces = MediaType.TEXT_HTML_VALUE)
     public String submitAnalyze(@ModelAttribute("form") AnalyzeForm form, Model model) {
+        // Recompute authoritative values
         String blob = safeLatestBlob();
         form.setBlob_name(blob);
         form.setContainer(CONTAINER);
 
         LOG.info("ANALYZE_ATTEMPT container={} blob={}", form.getContainer(), form.getBlob_name());
 
-        try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("blob_name", form.getBlob_name());
-            payload.put("container", form.getContainer());
+        Map<String, Object> payload = Map.of(
+                "blob_name", form.getBlob_name(),
+                "container", form.getContainer()
+        );
 
-            Map<String, Object> result = matrixWebClient.post()
-                    .uri("/matrix/analyze")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .bodyValue(payload)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, resp -> resp.createException())
-                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                    .block();
+        try {
+            Map<String, Object> result = tryAnalyze(payload);
 
             String status = (result != null) ? String.valueOf(result.getOrDefault("status", "unknown")) : "null";
             LOG.info("ANALYZE_SUCCESS container={} blob={} status={} keys={}",
@@ -111,12 +105,52 @@ public class MatrixAnalyzeUiController {
         return VIEW;
     }
 
+    /**
+     * Call backend analyze: try POST first; if 405 Method Not Allowed, retry as GET with query params.
+     */
+    private Map<String, Object> tryAnalyze(Map<String, Object> payload) {
+        try {
+            // Primary: POST /matrix/analyze (JSON)
+            return matrixWebClient.post()
+                    .uri("/matrix/analyze")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, resp -> resp.createException())
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block();
+        } catch (WebClientResponseException.MethodNotAllowed mna) {
+            // Fallback: GET /matrix/analyze?container=...&blob_name=...
+            String container = String.valueOf(payload.get("container"));
+            String blobName  = String.valueOf(payload.get("blob_name"));
+
+            LOG.info("ANALYZE_RETRY_GET container={} blob={} because=405", container, blobName);
+
+            return matrixWebClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/matrix/analyze")
+                            .queryParam("container", container)
+                            .queryParam("blob_name", blobName)
+                            .build())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, resp -> resp.createException())
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block();
+        }
+    }
+
     // ===== helpers =====
 
+    /** Pick newest timestamped blob; else "*-latest.b64"; else FALLBACK. */
     private String safeLatestBlob() {
         try {
             List<String> names = matrixWebClient.get()
-                    .uri(uriBuilder -> uriBuilder.path("/matrix/blobs").queryParam("container", CONTAINER).build())
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/matrix/blobs")
+                            .queryParam("container", CONTAINER)
+                            .build())
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, resp -> resp.createException())
@@ -157,6 +191,7 @@ public class MatrixAnalyzeUiController {
         }
     }
 
+    /** Parse YYYYMMDD-HHMMSS right before .b64; returns 0 if absent/bad. */
     private static long extractSortableTs(String name) {
         if (name == null) return 0L;
         int dot = name.lastIndexOf('.');
@@ -174,11 +209,8 @@ public class MatrixAnalyzeUiController {
         String yyyymmdd = stem.substring(prevDash + 1, lastDash);
         if (!yyyymmdd.matches("\\d{8}")) return 0L;
 
-        try {
-            return Long.parseLong(yyyymmdd + hhmmss);
-        } catch (NumberFormatException ignore) {
-            return 0L;
-        }
+        try { return Long.parseLong(yyyymmdd + hhmmss); }
+        catch (NumberFormatException ignore) { return 0L; }
     }
 
     private String toJsonSafe(Object o) {
@@ -191,6 +223,7 @@ public class MatrixAnalyzeUiController {
         return (s.length() <= max) ? s : s.substring(0, max) + "...(truncated)";
     }
 
+    /** Backing bean for analyze.html (blob_name + container). */
     public static class AnalyzeForm {
         private String blob_name;
         private String container;
