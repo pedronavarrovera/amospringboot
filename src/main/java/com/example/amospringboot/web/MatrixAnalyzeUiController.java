@@ -1,20 +1,14 @@
-// src/main/java/com/example/amospringboot/web/MatrixUiController.java
 package com.example.amospringboot.web;
 
-import com.example.amospringboot.matrix.dto.CycleFindRequest;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -23,98 +17,58 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 @Controller
-@RequestMapping("/matrix/cycle")
-public class MatrixUiController {
+@RequestMapping("/matrix")
+public class MatrixAnalyzeUiController {
 
-    private static final Logger LOG = LoggerFactory.getLogger(MatrixUiController.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MatrixAnalyzeUiController.class);
 
-    private static final String VIEW = "matrix/cycle-find";
+    private static final String VIEW = "analyze";         // matches analyze.html
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK_BLOB = "initial-matrix.b64";
     private static final Pattern TS_TAIL = Pattern.compile("(-\\d{8}-\\d{6})$");
 
     private final WebClient matrixWebClient;
+    private final ObjectMapper objectMapper;
 
-    public MatrixUiController(WebClient matrixWebClient) {
+    public MatrixAnalyzeUiController(WebClient matrixWebClient, ObjectMapper objectMapper) {
         this.matrixWebClient = matrixWebClient;
+        this.objectMapper = objectMapper;
     }
 
-    @InitBinder("cycleForm")
-    public void disallowAuthoritative(WebDataBinder binder) {
-        // Users must not post these; we compute them server-side.
-        binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
-    }
-
-    /** Default for /matrix/cycle -> take users to the UI page */
-    @GetMapping
-    public String cycleRootRedirect() {
-        return "redirect:/matrix/cycle/find/ui";
-    }
-
-    /** GET page */
-    @GetMapping("/find/ui")
-    public String show(Model model,
-                       @AuthenticationPrincipal OidcUser oidc,
-                       @AuthenticationPrincipal OAuth2User oauth2,
-                       @RequestParam(value = "blob", required = false) String blobOverride) {
-
-        if (!model.containsAttribute("cycleForm")) {
-            CycleFindRequest form = new CycleFindRequest();
-
+    /** Show analyze page with authoritative defaults */
+    @GetMapping("/analyze")
+    public String showAnalyze(Model model, @RequestParam(value = "blob", required = false) String blobOverride) {
+        if (!model.containsAttribute("form")) {
+            AnalyzeForm form = new AnalyzeForm();
             String chosenBlob = (blobOverride != null && !blobOverride.isBlank())
                     ? blobOverride
                     : safeLatestBlob();
-
             form.setBlob_name(chosenBlob);
-            form.setOut_base(normalizeOutBase(chosenBlob));
             form.setContainer(CONTAINER);
-            form.setNode_a(localPart(resolveUpn(oidc, oauth2)));
-
-            model.addAttribute("cycleForm", form);
+            model.addAttribute("form", form);
         }
-
         model.addAttribute("error", null);
         model.addAttribute("result", null);
+        model.addAttribute("resultJson", "{}");
         return VIEW;
     }
 
-    /** POST submit (no @Valid: we set authoritative fields first, then check node_b manually) */
-    @PostMapping(value = "/find/ui", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public String submit(@ModelAttribute("cycleForm") CycleFindRequest form,
-                         Model model,
-                         @AuthenticationPrincipal OidcUser oidc,
-                         @AuthenticationPrincipal OAuth2User oauth2) {
-
-        // Re-compute authoritative values
+    /** Handle Analyze submit from analyze.html */
+    @PostMapping(value = "/analyze", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    public String submitAnalyze(@ModelAttribute("form") AnalyzeForm form, Model model) {
+        // Recompute authoritative fields server-side
         String blob = safeLatestBlob();
-        String outBase = normalizeOutBase(blob);
-        String nodeA = localPart(resolveUpn(oidc, oauth2));
-
         form.setBlob_name(blob);
-        form.setOut_base(outBase);
         form.setContainer(CONTAINER);
-        form.setNode_a(nodeA);
-
-        // Minimal validation for user-entered field(s)
-        String nodeB = form.getNode_b();
-        if (nodeB == null || nodeB.isBlank() || !nodeB.matches("^[A-Za-z0-9_\\-]{1,64}$")) {
-            model.addAttribute("error", "Please correct the highlighted fields.");
-            return VIEW;
-        }
 
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("blob_name", form.getBlob_name());
-            payload.put("node_a", form.getNode_a());
-            payload.put("node_b", form.getNode_b());
             payload.put("container", form.getContainer());
-            if (form.getApply_settlement() != null) {
-                payload.put("apply_settlement", form.getApply_settlement());
-            }
-            payload.put("out_base", form.getOut_base());
 
+            // Call matrix service API
             Map<String, Object> result = matrixWebClient.post()
-                    .uri("/matrix/cycle/find")
+                    .uri("/matrix/analyze")
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .bodyValue(payload)
@@ -125,21 +79,23 @@ public class MatrixUiController {
 
             model.addAttribute("result", result);
             model.addAttribute("error", null);
+            model.addAttribute("resultJson", toJsonSafe(result));
 
         } catch (WebClientResponseException wcre) {
             int code = wcre.getStatusCode().value();
-            LOG.warn("Cycle find failed: HTTP {}", code, wcre);
-            model.addAttribute("error", "Search failed: HTTP " + code);
+            LOG.warn("Analyze failed: HTTP {}", code, wcre);
+            model.addAttribute("error", "Analyze failed: HTTP " + code);
             model.addAttribute("result", null);
+            model.addAttribute("resultJson", toJsonSafe(errorMap("status", "error", "http_code", code)));
 
         } catch (Exception ex) {
-            LOG.error("Cycle find via UI failed", ex);
-            model.addAttribute("error",
-                    "Search failed: " + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()));
+            LOG.error("Analyze via UI failed", ex);
+            String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+            model.addAttribute("error", "Analyze failed: " + msg);
             model.addAttribute("result", null);
+            model.addAttribute("resultJson", toJsonSafe(errorMap("status", "error", "message", msg)));
         }
 
-        model.addAttribute("cycleForm", form);
         return VIEW;
     }
 
@@ -222,51 +178,24 @@ public class MatrixUiController {
         }
     }
 
-    /** Strip timestamp & .b64 → base name (e.g., "initial-matrix"). */
-    private static String normalizeOutBase(String blobName) {
-        if (blobName == null || blobName.isBlank()) return "initial-matrix";
-        String base = blobName.endsWith(".b64") ? blobName.substring(0, blobName.length() - 4) : blobName;
-        base = TS_TAIL.matcher(base).replaceAll("");
-        return base;
+    private String toJsonSafe(Object o) {
+        try { return objectMapper.writeValueAsString(o); }
+        catch (JsonProcessingException e) { return "{\"error\":\"json-serialize-failed\"}"; }
     }
 
-    private static String resolveUpn(OidcUser oidc, OAuth2User oauth2) {
-        if (oidc != null) {
-            String v = firstNonBlank(
-                    oidc.getClaimAsString("upn"),
-                    oidc.getClaimAsString("preferred_username"),
-                    oidc.getEmail(),
-                    oidc.getName());
-            if (v != null) return v;
-        }
-        if (oauth2 != null) {
-            String v = firstNonBlank(
-                    asString(oauth2.getAttributes().get("upn")),
-                    asString(oauth2.getAttributes().get("preferred_username")),
-                    asString(oauth2.getAttributes().get("email")),
-                    oauth2.getName());
-            if (v != null) return v;
-        }
-        Authentication a = SecurityContextHolder.getContext().getAuthentication();
-        return a != null ? a.getName() : "unknown";
+    private static Map<String, Object> errorMap(Object... kv) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) m.put(String.valueOf(kv[i]), kv[i + 1]);
+        return m;
     }
 
-    private static String localPart(String s) {
-        if (s == null) return "unknown";
-        int at = s.indexOf('@');
-        return at > 0 ? s.substring(0, at) : s;
-    }
-
-    private static String firstNonBlank(String... vals) {
-        for (String v : vals) if (v != null && !v.isBlank()) return v;
-        return null;
-    }
-
-    private static String asString(Object o) {
-        return (o == null) ? null : String.valueOf(o);
+    /** Backing bean for analyze.html (blob_name + container). */
+    public static class AnalyzeForm {
+        private String blob_name;
+        private String container;
+        public String getBlob_name() { return blob_name; }
+        public void setBlob_name(String blob_name) { this.blob_name = blob_name; }
+        public String getContainer() { return container; }
+        public void setContainer(String container) { this.container = container; }
     }
 }
-
-
-
-
