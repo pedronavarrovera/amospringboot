@@ -2,7 +2,6 @@
 package com.example.amospringboot.web;
 
 import com.example.amospringboot.matrix.dto.CycleFindRequest;
-import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
@@ -15,7 +14,6 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -33,7 +31,6 @@ public class MatrixUiController {
     private static final String VIEW = "matrix/cycle-find";
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK_BLOB = "initial-matrix.b64";
-
     private static final Pattern TS_TAIL = Pattern.compile("(-\\d{8}-\\d{6})$");
 
     private final WebClient matrixWebClient;
@@ -44,7 +41,14 @@ public class MatrixUiController {
 
     @InitBinder("cycleForm")
     public void disallowAuthoritative(WebDataBinder binder) {
+        // Users must not post these; we compute them server-side.
         binder.setDisallowedFields("blob_name", "out_base", "container", "node_a");
+    }
+
+    /** Convenience redirect so any link to /matrix/analyze won’t 404. */
+    @GetMapping("/../analyze")
+    public String analyzeRedirect() {
+        return "redirect:/matrix";
     }
 
     /** GET page */
@@ -71,18 +75,17 @@ public class MatrixUiController {
 
         model.addAttribute("error", null);
         model.addAttribute("result", null);
-
         return VIEW;
     }
 
-    /** POST submit */
+    /** POST submit (no @Valid: we set authoritative fields first, then check node_b manually) */
     @PostMapping(value = "/find/ui", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    public String submit(@Valid @ModelAttribute("cycleForm") CycleFindRequest form,
-                         BindingResult binding,
+    public String submit(@ModelAttribute("cycleForm") CycleFindRequest form,
                          Model model,
                          @AuthenticationPrincipal OidcUser oidc,
                          @AuthenticationPrincipal OAuth2User oauth2) {
 
+        // Re-compute authoritative values
         String blob = safeLatestBlob();
         String outBase = normalizeOutBase(blob);
         String nodeA = localPart(resolveUpn(oidc, oauth2));
@@ -92,7 +95,9 @@ public class MatrixUiController {
         form.setContainer(CONTAINER);
         form.setNode_a(nodeA);
 
-        if (binding.hasErrors()) {
+        // Minimal validation for user-entered field(s)
+        String nodeB = form.getNode_b();
+        if (nodeB == null || nodeB.isBlank() || !nodeB.matches("^[A-Za-z0-9_\\-]{1,64}$")) {
             model.addAttribute("error", "Please correct the highlighted fields.");
             return VIEW;
         }
@@ -103,8 +108,9 @@ public class MatrixUiController {
             payload.put("node_a", form.getNode_a());
             payload.put("node_b", form.getNode_b());
             payload.put("container", form.getContainer());
-            if (form.getApply_settlement() != null)
+            if (form.getApply_settlement() != null) {
                 payload.put("apply_settlement", form.getApply_settlement());
+            }
             payload.put("out_base", form.getOut_base());
 
             Map<String, Object> result = matrixWebClient.post()
@@ -139,7 +145,7 @@ public class MatrixUiController {
 
     // ===== helpers =====
 
-    /** Pick newest timestamped blob; else use "*-latest.b64"; else FALLBACK. */
+    /** Pick newest timestamped blob; else "*-latest.b64"; else FALLBACK. */
     private String safeLatestBlob() {
         try {
             List<String> names = matrixWebClient.get()
@@ -260,7 +266,6 @@ public class MatrixUiController {
         return (o == null) ? null : String.valueOf(o);
     }
 }
-
 
 
 
