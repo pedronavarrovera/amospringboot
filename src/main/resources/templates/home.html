@@ -120,6 +120,9 @@
         <span>Payments</span>
       </div>
 
+      <!-- ✅ NEW: User Manual link -->
+      <a class="btn btn-primary" th:href="@{/docs/manual.pdf}" target="_blank" rel="noopener">📘 User Manual (PDF)</a>
+
       <!-- POST /logout with CSRF -->
       <form th:action="@{/logout}" method="post" class="logout-form" aria-label="Logout form">
         <button type="submit" class="btn btn-link logout-btn" aria-label="Logout">
