@@ -1,3 +1,4 @@
+// src/main/java/com/example/amospringboot/web/MatrixAnalyzeUiController.java
 package com.example.amospringboot.web;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -14,10 +15,9 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.*;
-import java.util.regex.Pattern;
 
 @Controller
-@RequestMapping("/matrix")
+@RequestMapping("/matrix/analyze")
 public class MatrixAnalyzeUiController {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatrixAnalyzeUiController.class);
@@ -25,7 +25,6 @@ public class MatrixAnalyzeUiController {
     private static final String VIEW = "analyze";         // matches analyze.html
     private static final String CONTAINER = "matrices";
     private static final String FALLBACK_BLOB = "initial-matrix.b64";
-    private static final Pattern TS_TAIL = Pattern.compile("(-\\d{8}-\\d{6})$");
 
     private final WebClient matrixWebClient;
     private final ObjectMapper objectMapper;
@@ -36,8 +35,9 @@ public class MatrixAnalyzeUiController {
     }
 
     /** Show analyze page with authoritative defaults */
-    @GetMapping("/analyze")
-    public String showAnalyze(Model model, @RequestParam(value = "blob", required = false) String blobOverride) {
+    @GetMapping
+    public String showAnalyze(Model model,
+                              @RequestParam(value = "blob", required = false) String blobOverride) {
         if (!model.containsAttribute("form")) {
             AnalyzeForm form = new AnalyzeForm();
             String chosenBlob = (blobOverride != null && !blobOverride.isBlank())
@@ -46,6 +46,9 @@ public class MatrixAnalyzeUiController {
             form.setBlob_name(chosenBlob);
             form.setContainer(CONTAINER);
             model.addAttribute("form", form);
+
+            LOG.info("ANALYZE_UI_GET container={} blob={} (override={})",
+                    CONTAINER, chosenBlob, safe(blobOverride));
         }
         model.addAttribute("error", null);
         model.addAttribute("result", null);
@@ -54,12 +57,14 @@ public class MatrixAnalyzeUiController {
     }
 
     /** Handle Analyze submit from analyze.html */
-    @PostMapping(value = "/analyze", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    @PostMapping(consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     public String submitAnalyze(@ModelAttribute("form") AnalyzeForm form, Model model) {
         // Recompute authoritative fields server-side
         String blob = safeLatestBlob();
         form.setBlob_name(blob);
         form.setContainer(CONTAINER);
+
+        LOG.info("ANALYZE_ATTEMPT container={} blob={}", form.getContainer(), form.getBlob_name());
 
         try {
             Map<String, Object> payload = new HashMap<>();
@@ -77,20 +82,28 @@ public class MatrixAnalyzeUiController {
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block();
 
+            String status = (result != null) ? String.valueOf(result.getOrDefault("status", "unknown")) : "null";
+            LOG.info("ANALYZE_SUCCESS container={} blob={} status={} resultKeys={}",
+                    form.getContainer(), form.getBlob_name(), status,
+                    (result == null ? 0 : result.keySet().size()));
+
             model.addAttribute("result", result);
             model.addAttribute("error", null);
             model.addAttribute("resultJson", toJsonSafe(result));
 
         } catch (WebClientResponseException wcre) {
             int code = wcre.getStatusCode().value();
-            LOG.warn("Analyze failed: HTTP {}", code, wcre);
+            LOG.warn("ANALYZE_FAILURE_HTTP container={} blob={} httpCode={} body={}",
+                    form.getContainer(), form.getBlob_name(), code,
+                    truncate(wcre.getResponseBodyAsString(), 1000));
             model.addAttribute("error", "Analyze failed: HTTP " + code);
             model.addAttribute("result", null);
             model.addAttribute("resultJson", toJsonSafe(errorMap("status", "error", "http_code", code)));
 
         } catch (Exception ex) {
-            LOG.error("Analyze via UI failed", ex);
-            String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+            String msg = (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
+            LOG.error("ANALYZE_FAILURE_EX container={} blob={} errorClass={} message={}",
+                    form.getContainer(), form.getBlob_name(), ex.getClass().getName(), truncate(msg, 1000), ex);
             model.addAttribute("error", "Analyze failed: " + msg);
             model.addAttribute("result", null);
             model.addAttribute("resultJson", toJsonSafe(errorMap("status", "error", "message", msg)));
@@ -121,24 +134,25 @@ public class MatrixAnalyzeUiController {
             }
 
             String latestAlias = null;
-            List<String> ts = new ArrayList<>();
+            String bestTs = null;
+            long bestVal = 0L;
 
             for (String n : names) {
                 if (n == null || n.isBlank()) continue;
                 if (n.endsWith("-latest.b64")) {
                     latestAlias = n;
-                } else if (extractSortableTs(n) > 0L) {
-                    ts.add(n);
+                }
+                long v = extractSortableTs(n);
+                if (v > bestVal) {
+                    bestVal = v;
+                    bestTs = n;
                 }
             }
 
-            if (!ts.isEmpty()) {
-                ts.sort((a, b) -> Long.compare(extractSortableTs(b), extractSortableTs(a)));
-                String best = ts.get(0);
-                LOG.info("safeLatestBlob(): selected timestamped {}", best);
-                return best;
+            if (bestTs != null) {
+                LOG.info("safeLatestBlob(): selected timestamped {}", bestTs);
+                return bestTs;
             }
-
             if (latestAlias != null) {
                 LOG.info("safeLatestBlob(): no timestamped entries; using alias {}", latestAlias);
                 return latestAlias;
@@ -188,6 +202,13 @@ public class MatrixAnalyzeUiController {
         for (int i = 0; i + 1 < kv.length; i += 2) m.put(String.valueOf(kv[i]), kv[i + 1]);
         return m;
     }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return null;
+        return (s.length() <= max) ? s : s.substring(0, max) + "...(truncated)";
+    }
+
+    private static String safe(String s) { return s == null ? "null" : s; }
 
     /** Backing bean for analyze.html (blob_name + container). */
     public static class AnalyzeForm {
