@@ -4,9 +4,10 @@ package com.example.amospringboot.web;
 import com.example.amospringboot.matrix.dto.CycleFindRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,18 +21,21 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 @Controller
 @RequestMapping("/matrix/cycle")
 public class MatrixUiController {
 
-    private static final Logger LOG = LoggerFactory.getLogger(MatrixUiController.class);
+    private static final Logger LOG   = LoggerFactory.getLogger(MatrixUiController.class);
+    /** Audit channel analogous to PaymentUiController's AUDIT logger */
+    private static final Logger AUDIT = LoggerFactory.getLogger("cycle.audit");
 
-    private static final String VIEW = "matrix/cycle-find";
-    private static final String CONTAINER = "matrices";
+    private static final String VIEW          = "matrix/cycle-find";
+    private static final String CONTAINER     = "matrices";
     private static final String FALLBACK_BLOB = "initial-matrix.b64";
-    private static final Pattern TS_TAIL = Pattern.compile("(-\\d{8}-\\d{6})$");
+    private static final Pattern TS_TAIL      = Pattern.compile("(-\\d{8}-\\d{6})$");
 
     private final WebClient matrixWebClient;
 
@@ -86,9 +90,9 @@ public class MatrixUiController {
                          @AuthenticationPrincipal OAuth2User oauth2) {
 
         // Re-compute authoritative values
-        String blob = safeLatestBlob();
+        String blob    = safeLatestBlob();
         String outBase = normalizeOutBase(blob);
-        String nodeA = localPart(resolveUpn(oidc, oauth2));
+        String nodeA   = localPart(resolveUpn(oidc, oauth2));
 
         form.setBlob_name(blob);
         form.setOut_base(outBase);
@@ -102,17 +106,34 @@ public class MatrixUiController {
             return VIEW;
         }
 
+        // ===== Payment-style structured logging =====
+        final String traceId = UUID.randomUUID().toString();
+        MDC.put("traceId", traceId);
+        long durationMs = 0L;
+
+        Boolean applySettlementRequested = form.getApply_settlement();
+
+        LOG.info("CYCLE_ATTEMPT traceId={} container={} blob={} out={} node_a={} node_b={} apply_settlement={}",
+                traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                safe(form.getNode_a()), safe(form.getNode_b()),
+                String.valueOf(applySettlementRequested));
+        AUDIT.info("CYCLE_ATTEMPT traceId={} container={} blob={} out={} node_a={} node_b={} apply_settlement={}",
+                traceId, form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                safe(form.getNode_a()), safe(form.getNode_b()),
+                String.valueOf(applySettlementRequested));
+
         try {
-            Map<String, Object> payload = new HashMap<>();
+            Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("blob_name", form.getBlob_name());
             payload.put("node_a", form.getNode_a());
             payload.put("node_b", form.getNode_b());
             payload.put("container", form.getContainer());
-            if (form.getApply_settlement() != null) {
-                payload.put("apply_settlement", form.getApply_settlement());
+            if (applySettlementRequested != null) {
+                payload.put("apply_settlement", applySettlementRequested);
             }
             payload.put("out_base", form.getOut_base());
 
+            long t0 = System.nanoTime();
             Map<String, Object> result = matrixWebClient.post()
                     .uri("/matrix/cycle/find")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -122,21 +143,77 @@ public class MatrixUiController {
                     .onStatus(HttpStatusCode::isError, resp -> resp.createException())
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block();
+            durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+
+            // Extract common fields
+            String  status            = asString(result != null ? result.get("status") : null);
+            String  writtenBlob       = asString(result != null ? result.get("written_blob") : null);
+            Boolean settlementApplied = asBooleanOrNull(result != null ? result.get("settlement_applied") : null);
+
+            // Some backends may wrap inside "data"
+            if (result != null && result.get("data") instanceof Map<?,?> data) {
+                if (status == null)            status = asString(data.get("status"));
+                if (writtenBlob == null)       writtenBlob = asString(data.get("written_blob"));
+                if (settlementApplied == null) settlementApplied = asBooleanOrNull(data.get("settlement_applied"));
+            }
+
+            boolean ok = "ok".equalsIgnoreCase(status)
+                      || (writtenBlob != null && !writtenBlob.isBlank());
+
+            LOG.info("CYCLE_SUCCESS traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} apply_settlement={} settlement_applied={} status={} written_blob={}",
+                    traceId, durationMs,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()),
+                    String.valueOf(applySettlementRequested), String.valueOf(settlementApplied),
+                    safe(status), safe(writtenBlob));
+            AUDIT.info("CYCLE_SUCCESS traceId={} container={} blob={} out={} node_a={} node_b={} apply_settlement={} settlement_applied={} status={} written_blob={}",
+                    traceId,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()),
+                    String.valueOf(applySettlementRequested), String.valueOf(settlementApplied),
+                    safe(status), safe(writtenBlob));
 
             model.addAttribute("result", result);
-            model.addAttribute("error", null);
+            model.addAttribute("error", ok ? null : ("Search failed: status=" + safe(status)));
 
         } catch (WebClientResponseException wcre) {
             int code = wcre.getStatusCode().value();
-            LOG.warn("Cycle find failed: HTTP {}", code, wcre);
+            String body = wcre.getResponseBodyAsString();
+            String msg = (body != null && !body.isBlank()) ? truncate(body, 800) : ("HTTP " + code);
+
+            LOG.warn("CYCLE_FAILURE traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} apply_settlement={} http_status={} errorBody={}",
+                    traceId, durationMs,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()),
+                    String.valueOf(applySettlementRequested), code, msg, wcre);
+            AUDIT.info("CYCLE_FAILURE traceId={} container={} blob={} out={} node_a={} node_b={} apply_settlement={} http_status={} error={}",
+                    traceId,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()),
+                    String.valueOf(applySettlementRequested), code, truncate(msg, 400));
+
             model.addAttribute("error", "Search failed: HTTP " + code);
             model.addAttribute("result", null);
 
         } catch (Exception ex) {
-            LOG.error("Cycle find via UI failed", ex);
-            model.addAttribute("error",
-                    "Search failed: " + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()));
+            String msg = (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
+
+            LOG.warn("CYCLE_FAILURE traceId={} durationMs={} container={} blob={} out={} node_a={} node_b={} apply_settlement={} errorClass={} error={}",
+                    traceId, durationMs,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()),
+                    String.valueOf(applySettlementRequested),
+                    ex.getClass().getName(), truncate(msg, 800), ex);
+            AUDIT.info("CYCLE_FAILURE traceId={} container={} blob={} out={} node_a={} node_b={} apply_settlement={} error={}",
+                    traceId,
+                    form.getContainer(), form.getBlob_name(), form.getOut_base(),
+                    safe(form.getNode_a()), safe(form.getNode_b()),
+                    String.valueOf(applySettlementRequested), truncate(msg, 400));
+
+            model.addAttribute("error", "Search failed: " + msg);
             model.addAttribute("result", null);
+        } finally {
+            MDC.clear();
         }
 
         model.addAttribute("cycleForm", form);
@@ -265,7 +342,27 @@ public class MatrixUiController {
     private static String asString(Object o) {
         return (o == null) ? null : String.valueOf(o);
     }
+
+    private static Boolean asBooleanOrNull(Object o) {
+        if (o == null) return null;
+        if (o instanceof Boolean b) return b;
+        if (o instanceof String s) {
+            if ("true".equalsIgnoreCase(s))  return Boolean.TRUE;
+            if ("false".equalsIgnoreCase(s)) return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    private static String safe(String s) {
+        return s == null ? "null" : s;
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return null;
+        return (s.length() <= max) ? s : s.substring(0, max) + "...(truncated)";
+    }
 }
+
 
 
 
