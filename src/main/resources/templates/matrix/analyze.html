@@ -6,10 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root{ --bg:#0f172a; --card:#fff; --text:#0b1220; --muted:#6b7280; --accent:#2563eb; --accent-2:#0ea5e9; --shadow:0 12px 30px rgba(15,23,42,.12); --radius:16px; }
+    :root{ --bg:#0f172a; --card:#fff; --text:#0b1220; --muted:#6b7280; --accent:#2563eb; --accent-2:#0ea5e9; --shadow:0 12px 30px rgba(15,23,42,.12); --radius:16px; --ok:#0a7; --bad:#d33; }
     *{ box-sizing:border-box }
     body{ margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial; background:#f5f7fb; color:var(--text) }
-    .shell{ max-width:860px; margin:48px auto; padding:0 20px }
+    .shell{ max-width:960px; margin:48px auto; padding:0 20px }
     .header{ background:linear-gradient(135deg,var(--bg),#1e293b); color:#fff; border-radius:var(--radius); padding:24px 28px; box-shadow:var(--shadow); margin-bottom:24px; display:flex; justify-content:space-between; align-items:center }
     .brand{ display:flex; align-items:center; gap:.75rem; font-weight:700; font-size:20px }
     .brand-logo{ width:42px; height:auto; display:block }
@@ -19,11 +19,37 @@
     label{ font-weight:600; margin-bottom:6px }
     input{ padding:12px; border:1px solid #e5e7eb; border-radius:12px }
     .readonly-value{ padding:12px; border:1px dashed #e5e7eb; border-radius:12px; background:#fafafa; color:var(--muted) }
-    .btn{ display:inline-flex; align-items:center; gap:.5rem; padding:12px 18px; border-radius:12px; font-weight:600; text-decoration:none; border:1px solid #e5e7eb; background:#fff; color:#111 }
+    .btn{ display:inline-flex; align-items:center; gap:.5rem; padding:12px 18px; border-radius:12px; font-weight:600; text-decoration:none; border:1px solid #e5e7eb; background:#fff; color:#111; cursor:pointer }
     .btn-primary{ color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent }
     .btn:hover{ filter:brightness(1.02) }
-    .muted{ color:var(--muted) }
+   .muted{ color:var(--muted) }
     pre.code{ background:#0f172a; color:#e2e8f0; border-radius:12px; padding:14px; overflow:auto; white-space:pre; }
+
+    /* NEW: summary grid, tables, chips, badges */
+    .summary-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:14px }
+    .summary-card{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px }
+    .summary-label{ font-size:12px; color:var(--muted) }
+    .summary-value{ font-size:20px; font-weight:700; margin-top:4px }
+    .positive{ color:var(--ok) }
+    .negative{ color:var(--bad) }
+
+    .tabs{ display:flex; gap:8px; margin:18px 0 6px 0 }
+    .tab-btn{ padding:8px 12px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer }
+    .tab-btn.active{ background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff; border-color:transparent }
+    .tab-panel{ display:none }
+    .tab-panel.active{ display:block }
+
+    table{ width:100%; border-collapse:separate; border-spacing:0; margin-top:10px }
+    th,td{ padding:10px 12px; border-bottom:1px solid #eef1f4 }
+    th{ text-align:left; font-size:12px; color:var(--muted); font-weight:600 }
+    td.amount{ text-align:right; font-variant-numeric:tabular-nums }
+
+    .chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#f1f5f9; border:1px solid #e5e7eb; margin:4px 6px 4px 0; font-size:12px }
+    .arrow{ opacity:.6 }
+    .badge{ display:inline-block; padding:4px 8px; border-radius:999px; background:#eef6ff; border:1px solid #dbeafe; font-size:12px; margin-left:8px }
+
+    details.summary-json{ margin-top:14px }
+    details.summary-json > summary{ cursor:pointer; user-select:none }
   </style>
 </head>
 <body>
@@ -78,20 +104,181 @@
       <!-- Use pre-serialized JSON from the controller: resultJson -->
       <script type="application/json" id="analysisData" th:utext="${resultJson}">{}<!-- fallback --></script>
 
-      <pre class="code" id="resultJson">Loading…</pre>
+      <!-- NEW: Human summary & tabs -->
+      <div id="humanSummary" style="display:none">
+        <div class="summary-grid">
+          <div class="summary-card">
+            <div class="summary-label">People</div>
+            <div class="summary-value" id="sum-people">0</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">Active debts</div>
+            <div class="summary-value" id="sum-edges">0</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">Top creditor</div>
+            <div class="summary-value"><span id="sum-top-creditor-name">–</span> <span class="badge" id="sum-top-creditor-net">0 @mo</span></div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-label">Top debtor</div>
+            <div class="summary-value"><span id="sum-top-debtor-name">–</span> <span class="badge" id="sum-top-debtor-net">0 @mo</span></div>
+          </div>
+        </div>
 
+        <div class="tabs" role="tablist" aria-label="Analysis tabs">
+          <button class="tab-btn active" data-tab="balances" role="tab" aria-selected="true">Balances</button>
+          <button class="tab-btn" data-tab="cycles" role="tab" aria-selected="false">Cycles</button>
+          <button class="tab-btn" data-tab="settlements" role="tab" aria-selected="false">Suggested payments</button>
+          <button class="tab-btn" data-tab="raw" role="tab" aria-selected="false">Raw JSON</button>
+        </div>
+
+        <div id="panel-balances" class="tab-panel active" role="tabpanel">
+          <p class="muted">Net balance (non-zero only). Positive = creditor, Negative = debtor. Unit: <strong>@mo</strong>.</p>
+          <table id="balancesTable">
+            <thead><tr><th>Person</th><th class="amount">Net</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div id="panel-cycles" class="tab-panel" role="tabpanel">
+          <p class="muted">Circular settlements found. The loop can cancel at least the smallest edge (<em>min cancelable</em>).</p>
+          <div id="cyclesList"></div>
+        </div>
+
+        <div id="panel-settlements" class="tab-panel" role="tabpanel">
+          <p class="muted">Actionable checklist of payments to simplify balances.</p>
+          <table id="settlementsTable">
+            <thead><tr><th>From</th><th>To</th><th class="amount">Amount</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div id="panel-raw" class="tab-panel" role="tabpanel">
+          <details class="summary-json" open>
+            <summary>Show raw JSON</summary>
+            <pre class="code" id="resultJson">Loading…</pre>
+          </details>
+        </div>
+      </div>
+
+      <!-- (kept for robustness if JS fails) Raw JSON fallback -->
+      <noscript><pre class="code" th:text="${resultJson}">Enable JavaScript to see a human-readable view.</pre></noscript>
+
+      <!-- NEW: renderer script -->
       <script>
         (function () {
-          var el = document.getElementById('analysisData');
-          var text = el ? el.textContent : '{}';
-          var pretty;
-          try {
-            pretty = JSON.stringify(JSON.parse(text), null, 2);
-          } catch (e) {
-            pretty = text;
+          const UNIT = "@mo";
+
+          function fmtSigned(n){
+            const sign = n < 0 ? "−" : n > 0 ? "+" : "";
+            const s = Math.abs(n).toLocaleString(undefined,{maximumFractionDigits:0});
+            return `${sign}${s} ${UNIT}`;
           }
-          var pre = document.getElementById('resultJson');
-          if (pre) pre.textContent = pretty;
+          function fmt(n){
+            const s = Number(n).toLocaleString(undefined,{maximumFractionDigits:0});
+            return `${s} ${UNIT}`;
+          }
+
+          // Tabs
+          document.addEventListener('click', function(e){
+            const btn = e.target.closest('.tab-btn');
+            if(!btn) return;
+            const tab = btn.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(b=>{ b.classList.toggle('active', b===btn); b.setAttribute('aria-selected', b===btn ? 'true':'false'); });
+            document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+            const panel = document.getElementById('panel-'+tab);
+            if(panel) panel.classList.add('active');
+          });
+
+          // Parse analysis JSON
+          const holder = document.getElementById('analysisData');
+          const text = holder ? holder.textContent : '{}';
+          let data;
+          try { data = JSON.parse(text || '{}'); } catch(_) { data = {}; }
+
+          // Compute summary numbers
+          const people = (data.node_names && data.node_names.length) || (data.validation && data.validation.n) || 0;
+          let edges = 0;
+          if (Array.isArray(data.matrix)) {
+            for (let i=0;i<data.matrix.length;i++){
+              const row = data.matrix[i]||[];
+              for (let j=0;j<row.length;j++){ if (Number(row[j])!==0) edges++; }
+            }
+          }
+
+          // Fill summary cards (insights may already provide top creditor/debtor)
+          const topCreditorName = data.insights && data.insights.top_creditor ? data.insights.top_creditor.person || data.insights.top_creditor : '—';
+          const topCreditorNet  = data.insights && data.insights.top_creditor ? (data.insights.top_creditor.net ?? 0) : 0;
+          const topDebtorName   = data.insights && data.insights.top_debtor ? data.insights.top_debtor.person || data.insights.top_debtor : '—';
+          const topDebtorNet    = data.insights && data.insights.top_debtor ? (data.insights.top_debtor.net ?? 0) : 0;
+
+          const human = document.getElementById('humanSummary');
+          human.style.display = 'block';
+          document.getElementById('sum-people').textContent = people;
+          document.getElementById('sum-edges').textContent = edges;
+          document.getElementById('sum-top-creditor-name').textContent = topCreditorName;
+          document.getElementById('sum-top-creditor-net').textContent = fmtSigned(topCreditorNet);
+          document.getElementById('sum-top-debtor-name').textContent = topDebtorName;
+          document.getElementById('sum-top-debtor-net').textContent = fmtSigned(topDebtorNet);
+
+          // Balances table (non-zero only, sorted by absolute value desc)
+          const tbodyBal = document.querySelector('#balancesTable tbody');
+          const net = (data.totals && data.totals.net_balance) || {};
+          const rows = Object.entries(net)
+            .filter(([_,v]) => Number(v) !== 0)
+            .sort((a,b)=>Math.abs(b[1]) - Math.abs(a[1]));
+          for (const [person, value] of rows){
+            const tr = document.createElement('tr');
+            const tdName = document.createElement('td'); tdName.textContent = person;
+            const tdAmt  = document.createElement('td'); tdAmt.className = 'amount ' + (value>=0?'positive':'negative'); tdAmt.textContent = fmtSigned(Number(value));
+            tr.append(tdName, tdAmt);
+            tbodyBal.appendChild(tr);
+          }
+          if (rows.length === 0){
+            const tr = document.createElement('tr');
+            const td = document.createElement('td'); td.colSpan = 2; td.className='muted'; td.textContent='No non-zero balances.';
+            tr.appendChild(td); tbodyBal.appendChild(tr);
+          }
+
+          // Cycles list
+          const cyclesEl = document.getElementById('cyclesList');
+          const cycles = Array.isArray(data.cycles) ? data.cycles : [];
+          if (cycles.length === 0){
+            const p = document.createElement('p'); p.className='muted'; p.textContent = 'No cycles found.';
+            cyclesEl.appendChild(p);
+          } else {
+            cycles.forEach(c=>{
+              const wrap = document.createElement('div'); wrap.className='chip';
+              const path = (c.cycle || c.path || []).join(' \u2192 ');
+              const spanPath = document.createElement('span'); spanPath.textContent = path;
+              const badge = document.createElement('span'); badge.className='badge'; badge.textContent = `min cancelable: ${fmt(c.min_cancelable || 0)}`;
+              wrap.append(spanPath, badge);
+              cyclesEl.appendChild(wrap);
+            });
+          }
+
+          // Settlement suggestions table
+          const tbodySet = document.querySelector('#settlementsTable tbody');
+          const sugg = Array.isArray(data.settlement_suggestions) ? data.settlement_suggestions : [];
+          if (sugg.length === 0){
+            const tr = document.createElement('tr');
+            const td = document.createElement('td'); td.colSpan = 3; td.className='muted'; td.textContent='No suggestions.';
+            tr.appendChild(td); tbodySet.appendChild(tr);
+          } else {
+            sugg.forEach(s=>{
+              const tr = document.createElement('tr');
+              const tdFrom = document.createElement('td'); tdFrom.textContent = s.from;
+              const tdTo   = document.createElement('td'); tdTo.textContent   = s.to;
+              const tdAmt  = document.createElement('td'); tdAmt.className='amount'; tdAmt.textContent = fmt(s.amount || 0);
+              tr.append(tdFrom, tdTo, tdAmt);
+              tbodySet.appendChild(tr);
+            });
+          }
+
+          // Raw JSON pretty print (kept, moved under "Raw JSON" tab)
+          let pretty;
+          try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch(e){ pretty = text; }
+          const pre = document.getElementById('resultJson'); if (pre) pre.textContent = pretty;
         })();
       </script>
     </section>
