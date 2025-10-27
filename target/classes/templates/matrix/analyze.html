@@ -22,18 +22,22 @@
     .btn{ display:inline-flex; align-items:center; gap:.5rem; padding:12px 18px; border-radius:12px; font-weight:600; text-decoration:none; border:1px solid #e5e7eb; background:#fff; color:#111; cursor:pointer }
     .btn-primary{ color:#fff; background:linear-gradient(135deg,var(--accent),var(--accent-2)); border-color:transparent }
     .btn:hover{ filter:brightness(1.02) }
-   .muted{ color:var(--muted) }
+    .muted{ color:var(--muted) }
     pre.code{ background:#0f172a; color:#e2e8f0; border-radius:12px; padding:14px; overflow:auto; white-space:pre; }
 
-    /* NEW: summary grid, tables, chips, badges */
-    .summary-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:14px }
+    /* Summary grid, tables, chips, badges */
+    .summary-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+      gap:12px; margin-top:14px
+    }
     .summary-card{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px }
     .summary-label{ font-size:12px; color:var(--muted) }
-    .summary-value{ font-size:20px; font-weight:700; margin-top:4px }
+    .summary-value{ font-size:20px; font-weight:700; margin-top:4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap }
     .positive{ color:var(--ok) }
     .negative{ color:var(--bad) }
 
-    .tabs{ display:flex; gap:8px; margin:18px 0 6px 0 }
+    .tabs{ display:flex; gap:8px; margin:18px 0 6px 0; flex-wrap:wrap }
     .tab-btn{ padding:8px 12px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer }
     .tab-btn.active{ background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff; border-color:transparent }
     .tab-panel{ display:none }
@@ -45,8 +49,7 @@
     td.amount{ text-align:right; font-variant-numeric:tabular-nums }
 
     .chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#f1f5f9; border:1px solid #e5e7eb; margin:4px 6px 4px 0; font-size:12px }
-    .arrow{ opacity:.6 }
-    .badge{ display:inline-block; padding:4px 8px; border-radius:999px; background:#eef6ff; border:1px solid #dbeafe; font-size:12px; margin-left:8px }
+    .badge{ display:inline-block; padding:4px 8px; border-radius:999px; background:#eef6ff; border:1px solid #dbeafe; font-size:12px }
 
     details.summary-json{ margin-top:14px }
     details.summary-json > summary{ cursor:pointer; user-select:none }
@@ -104,7 +107,7 @@
       <!-- Use pre-serialized JSON from the controller: resultJson -->
       <script type="application/json" id="analysisData" th:utext="${resultJson}">{}<!-- fallback --></script>
 
-      <!-- NEW: Human summary & tabs -->
+      <!-- Human summary & tabs -->
       <div id="humanSummary" style="display:none">
         <div class="summary-grid">
           <div class="summary-card">
@@ -114,6 +117,26 @@
           <div class="summary-card">
             <div class="summary-label">Active debts</div>
             <div class="summary-value" id="sum-edges">0</div>
+          </div>
+          <!-- NEW: Active users -->
+          <div class="summary-card">
+            <div class="summary-label">
+              Active users <span title="People who either owe something or are owed something (non-zero totals)">ⓘ</span>
+            </div>
+            <div class="summary-value" id="sum-active-users">0</div>
+          </div>
+          <!-- NEW: Total volume -->
+          <div class="summary-card">
+            <div class="summary-label">Total volume</div>
+            <div class="summary-value" id="sum-volume">0 @mo</div>
+          </div>
+          <!-- NEW: Largest debt -->
+          <div class="summary-card" style="grid-column: span 2;">
+            <div class="summary-label">Largest debt</div>
+            <div class="summary-value">
+              <span id="sum-largest-amt">0 @mo</span>
+              <span class="badge" id="sum-largest-who">—</span>
+            </div>
           </div>
           <div class="summary-card">
             <div class="summary-label">Top creditor</div>
@@ -129,6 +152,8 @@
           <button class="tab-btn active" data-tab="balances" role="tab" aria-selected="true">Balances</button>
           <button class="tab-btn" data-tab="cycles" role="tab" aria-selected="false">Cycles</button>
           <button class="tab-btn" data-tab="settlements" role="tab" aria-selected="false">Suggested payments</button>
+          <!-- NEW: Stats tab -->
+          <button class="tab-btn" data-tab="stats" role="tab" aria-selected="false">Stats</button>
           <button class="tab-btn" data-tab="raw" role="tab" aria-selected="false">Raw JSON</button>
         </div>
 
@@ -153,6 +178,14 @@
           </table>
         </div>
 
+        <!-- NEW: Stats panel -->
+        <div id="panel-stats" class="tab-panel" role="tabpanel">
+          <p class="muted">Aggregate metrics computed from the matrix and balances.</p>
+          <table>
+            <tbody id="statsTable"></tbody>
+          </table>
+        </div>
+
         <div id="panel-raw" class="tab-panel" role="tabpanel">
           <details class="summary-json" open>
             <summary>Show raw JSON</summary>
@@ -161,10 +194,10 @@
         </div>
       </div>
 
-      <!-- (kept for robustness if JS fails) Raw JSON fallback -->
+      <!-- Raw JSON fallback if JS disabled -->
       <noscript><pre class="code" th:text="${resultJson}">Enable JavaScript to see a human-readable view.</pre></noscript>
 
-      <!-- NEW: renderer script -->
+      <!-- Renderer script -->
       <script>
         (function () {
           const UNIT = "@mo";
@@ -196,26 +229,80 @@
           let data;
           try { data = JSON.parse(text || '{}'); } catch(_) { data = {}; }
 
-          // Compute summary numbers
+          // Compute counts
           const people = (data.node_names && data.node_names.length) || (data.validation && data.validation.n) || 0;
+
+          // Active debts (non-zero entries, any cell)
           let edges = 0;
+          // Also gather values, total volume, largest debt, and off-diagonal count for density
+          const values = [];
+          let totalVolume = 0;
+          let largest = { amount: 0, from: null, to: null };
+          let offDiagActive = 0;
           if (Array.isArray(data.matrix)) {
             for (let i=0;i<data.matrix.length;i++){
               const row = data.matrix[i]||[];
-              for (let j=0;j<row.length;j++){ if (Number(row[j])!==0) edges++; }
+              for (let j=0;j<row.length;j++){
+                const v = Number(row[j]) || 0;
+                if (v !== 0) {
+                  edges++;
+                  values.push(v);
+                  totalVolume += v;
+                  if (i !== j) offDiagActive++;
+                  if (v > largest.amount) {
+                    largest.amount = v;
+                    largest.from = data.node_names ? data.node_names[i] : `row${i}`;
+                    largest.to   = data.node_names ? data.node_names[j] : `col${j}`;
+                  }
+                }
+              }
             }
           }
 
-          // Fill summary cards (insights may already provide top creditor/debtor)
-          const topCreditorName = data.insights && data.insights.top_creditor ? data.insights.top_creditor.person || data.insights.top_creditor : '—';
+          // Active users: owe >0 OR owed >0 (prefer totals; fallback to matrix)
+          function countActiveUsers(d) {
+            const owedBy = (d.totals && d.totals.owed_by) || {};
+            const owedTo = (d.totals && d.totals.owed_to) || {};
+            const names = new Set([...Object.keys(owedBy), ...Object.keys(owedTo)]);
+            let active = 0;
+            if (names.size) {
+              names.forEach(name => {
+                const ob = Number(owedBy[name] || 0);
+                const ot = Number(owedTo[name] || 0);
+                if (ob !== 0 || ot !== 0) active++;
+              });
+              return active;
+            }
+            const M = Array.isArray(d.matrix) ? d.matrix : [];
+            const n = M.length;
+            let c = 0;
+            for (let i = 0; i < n; i++) {
+              let rowSum = 0, colSum = 0;
+              for (let j = 0; j < n; j++) {
+                rowSum += Number(M[i]?.[j] || 0);
+                colSum += Number(M[j]?.[i] || 0);
+              }
+              if (rowSum !== 0 || colSum !== 0) c++;
+            }
+            return c;
+          }
+          const activeUsers = countActiveUsers(data);
+
+          // Top creditor/debtor (from insights if present)
+          const topCreditorName = data.insights && data.insights.top_creditor ? (data.insights.top_creditor.person || data.insights.top_creditor) : '—';
           const topCreditorNet  = data.insights && data.insights.top_creditor ? (data.insights.top_creditor.net ?? 0) : 0;
-          const topDebtorName   = data.insights && data.insights.top_debtor ? data.insights.top_debtor.person || data.insights.top_debtor : '—';
+          const topDebtorName   = data.insights && data.insights.top_debtor ? (data.insights.top_debtor.person || data.insights.top_debtor) : '—';
           const topDebtorNet    = data.insights && data.insights.top_debtor ? (data.insights.top_debtor.net ?? 0) : 0;
 
+          // Show summary
           const human = document.getElementById('humanSummary');
           human.style.display = 'block';
           document.getElementById('sum-people').textContent = people;
           document.getElementById('sum-edges').textContent = edges;
+          document.getElementById('sum-active-users').textContent = activeUsers.toLocaleString();
+          document.getElementById('sum-volume').textContent = fmt(totalVolume);
+          document.getElementById('sum-largest-amt').textContent = fmt(largest.amount);
+          document.getElementById('sum-largest-who').textContent = (largest.from && largest.to) ? `${largest.from} → ${largest.to}` : '—';
           document.getElementById('sum-top-creditor-name').textContent = topCreditorName;
           document.getElementById('sum-top-creditor-net').textContent = fmtSigned(topCreditorNet);
           document.getElementById('sum-top-debtor-name').textContent = topDebtorName;
@@ -250,9 +337,8 @@
             cycles.forEach(c=>{
               const wrap = document.createElement('div'); wrap.className='chip';
               const path = (c.cycle || c.path || []).join(' \u2192 ');
-              const spanPath = document.createElement('span'); spanPath.textContent = path;
               const badge = document.createElement('span'); badge.className='badge'; badge.textContent = `min cancelable: ${fmt(c.min_cancelable || 0)}`;
-              wrap.append(spanPath, badge);
+              wrap.append(document.createTextNode(path), badge);
               cyclesEl.appendChild(wrap);
             });
           }
@@ -275,7 +361,53 @@
             });
           }
 
-          // Raw JSON pretty print (kept, moved under "Raw JSON" tab)
+          // ===== Stats tab =====
+          const statsTbody = document.getElementById('statsTable');
+          function addRow(label, value, title){
+            const tr = document.createElement('tr');
+            const tdL = document.createElement('td'); tdL.textContent = label; if (title) tdL.title = title;
+            const tdV = document.createElement('td'); tdV.className = 'amount'; tdV.textContent = value;
+            tr.append(tdL, tdV); statsTbody.appendChild(tr);
+          }
+
+          // Average & median over non-zero edges
+          const activeEdges = values.length;
+          const avg = activeEdges ? (totalVolume / activeEdges) : 0;
+          const median = (() => {
+            if (!activeEdges) return 0;
+            const a = values.slice().sort((x,y)=>x-y);
+            const mid = Math.floor(a.length/2);
+            return a.length % 2 ? a[mid] : (a[mid-1] + a[mid]) / 2;
+          })();
+
+          // Density over off-diagonal cells (exclude self-edges)
+          const denom = people > 1 ? (people * (people - 1)) : 0;
+          const density = denom ? (offDiagActive / denom) : 0;
+
+          // Creditor/debtor/balanced counts from net balances
+          let creditors = 0, debtors = 0, balanced = 0;
+          if (net && typeof net === 'object') {
+            Object.values(net).forEach(v=>{
+              const num = Number(v)||0;
+              if (num > 0) creditors++;
+              else if (num < 0) debtors++;
+              else balanced++;
+            });
+          }
+
+          addRow('People', people.toLocaleString());
+          addRow('Active debts', activeEdges.toLocaleString(), 'Non-zero matrix entries (any cell)');
+          addRow('Total volume', fmt(totalVolume), 'Sum of all non-zero entries');
+          addRow('Average debt', fmt(Math.round(avg)));
+          addRow('Median debt', fmt(Math.round(median)));
+          addRow('Matrix density', denom ? (density*100).toFixed(2)+' %' : '—', 'Active off-diagonal edges / (N × (N−1))');
+          addRow('Active users', activeUsers.toLocaleString(), 'People who either owe > 0 or are owed > 0');
+          addRow('Inactive users', (people - activeUsers).toLocaleString(), 'Zero owed and zero owed-to');
+          addRow('Creditors (net > 0)', creditors.toString());
+          addRow('Debtors (net < 0)', debtors.toString());
+          addRow('Balanced (net = 0)', balanced.toString());
+
+          // Raw JSON pretty print (in Raw JSON tab)
           let pretty;
           try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch(e){ pretty = text; }
           const pre = document.getElementById('resultJson'); if (pre) pre.textContent = pretty;
