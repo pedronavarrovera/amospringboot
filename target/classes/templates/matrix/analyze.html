@@ -395,6 +395,34 @@
             });
           }
 
+          // === Reciprocity Indexes ===
+          (function(){
+            const owedBy = (data.totals && data.totals.owed_by) || {}; // enviados
+            const owedTo = (data.totals && data.totals.owed_to) || {}; // recibidos
+            const names = new Set([...Object.keys(owedBy), ...Object.keys(owedTo)]);
+            let bestName = '—', bestPct = null, sumPct = 0, count = 0;
+
+            names.forEach(name=>{
+              const sent = Number(owedBy[name] || 0);
+              const recv = Number(owedTo[name] || 0);
+              if (sent > 0) {
+                const pct = (recv / sent) * 100;
+                sumPct += pct; count++;
+                if (bestPct === null || pct > bestPct) { bestPct = pct; bestName = name; }
+              }
+            });
+
+            const tooltip = '% (AMO_recibidos / AMO_enviados)';
+            if (bestPct === null || count === 0) {
+              addRow('Highest Reciprocity Index', '—', tooltip);
+              addRow('Average Reciprocity Index', '—', tooltip);
+            } else {
+              addRow('Highest Reciprocity Index', `${bestName} — ${bestPct.toFixed(2)} %`, tooltip);
+              addRow('Average Reciprocity Index', `${(sumPct / count).toFixed(2)} %`, tooltip);
+            }
+          })();
+          // ===========================
+
           addRow('People', people.toLocaleString());
           addRow('Active debts', activeEdges.toLocaleString(), 'Non-zero matrix entries (any cell)');
           addRow('Total volume', fmt(totalVolume), 'Sum of all non-zero entries');
@@ -417,3 +445,4 @@
   </div>
 </body>
 </html>
+
