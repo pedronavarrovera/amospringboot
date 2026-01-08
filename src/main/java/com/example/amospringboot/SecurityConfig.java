@@ -32,7 +32,7 @@ public class SecurityConfig {
             // ---------- Authorization ----------
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/public/**", "/health",
-                                 "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico")
+                                 "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico","/docs/**")
                 .permitAll()
                 // Matrix area (UI pages + JSON endpoints)
                 .requestMatchers("/matrix/**").authenticated()
