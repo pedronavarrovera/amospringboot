@@ -37,48 +37,51 @@
         #f5f7fb;
     }
 
-    .shell{ max-width: 860px; margin: 48px auto; padding: 0 20px; }
+    .shell{ max-width: 860px; margin: 24px auto; padding: 0 16px; }
 
     /* ---------- Header Styles ---------- */
     .header{
       background: linear-gradient(135deg, var(--bg), #1e293b);
       color:#fff;
       border-radius: var(--radius);
-      padding: 28px 28px;
+      padding: 18px 18px;
       box-shadow: var(--shadow);
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:16px;
+      gap:12px;
+      flex-wrap: wrap;
     }
     .brand{
       font-weight: 700; letter-spacing: .2px;
       display:flex; align-items:center; gap:.75rem;
+      min-width: 180px;
     }
-    .brand-logo{ width:42px; height:auto; display:block; }
+    .brand-logo{ width:40px; height:auto; display:block; }
 
     /* ---------- Card Styles ---------- */
     .card{
       background: var(--card);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding: 28px;
-      margin-top: 22px;
+      padding: 18px;
+      margin-top: 14px;
     }
 
-    h1{ margin:0 0 12px 0; font-size: clamp(22px, 3vw, 28px); letter-spacing: -0.3px; }
-    p{ margin: 0 0 20px 0; color: var(--muted); }
+    h1{ margin:0 0 10px 0; font-size: clamp(22px, 3vw, 28px); letter-spacing: -0.3px; }
+    p{ margin: 0 0 16px 0; color: var(--muted); }
 
-    .row{ display:flex; flex-wrap:wrap; gap:18px; align-items:center; }
+    .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
 
     /* ---------- Button Styles ---------- */
     .btn{
       display:inline-flex; align-items:center; justify-content:center;
-      gap:.5rem; padding: 12px 18px; border-radius: 12px;
+      gap:.5rem; padding: 12px 16px; border-radius: 12px;
       text-decoration:none; font-weight: 600; line-height: 1;
       border: 1px solid transparent;
       transition: transform .04s ease, box-shadow .2s ease, background .2s ease, color .2s ease;
       user-select:none; cursor:pointer; will-change: transform;
+      white-space: nowrap;
     }
     .btn:active{ transform: translateY(1px); }
 
@@ -97,17 +100,108 @@
     .logout-form { display:inline; margin:0; }
     .logout-btn { background:none; border:none; padding:0; }
 
-    .meta{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin: 16px 0 0; font-size: 14px; }
+    .meta{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin: 14px 0 0; font-size: 14px; }
     .tag{ padding: 6px 10px; border-radius: 999px; background:#eef2ff; color:#3b82f6; font-weight:600; }
 
     .muted{ color: var(--muted); }
     .username{ color:#111827; font-weight:700; }
 
-    .divider{ height:1px; background:#eef2f7; margin:20px 0; }
+    .divider{ height:1px; background:#eef2f7; margin:18px 0; }
 
     a:focus-visible, button:focus-visible{
       outline: 3px solid rgba(37,99,235,.4);
       outline-offset: 2px; border-radius: 12px;
+    }
+
+    /* ---------- Public AMO info (works for unauth users) ---------- */
+    .public-info{
+      margin-top: 14px;
+      padding: 16px;
+      border-radius: 14px;
+      background: #f8fafc;
+      border: 1px solid #eef2f7;
+    }
+    .public-info h2{
+      margin: 0 0 8px 0;
+      font-size: 18px;
+      letter-spacing: -0.2px;
+      color:#111827;
+    }
+    .lang-hint{
+      margin-top: 6px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* Mobile-friendly accordion with native <details> */
+    details.lang{
+      background:#fff;
+      border:1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 12px 12px;
+      margin-top: 10px;
+      box-shadow: 0 6px 16px rgba(15,23,42,.06);
+    }
+    details.lang[open]{ border-color:#dbeafe; }
+    details.lang summary{
+      cursor:pointer;
+      list-style:none;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-weight: 700;
+      color:#111827;
+      outline: none;
+    }
+    details.lang summary::-webkit-details-marker{ display:none; }
+    .chev{
+      width: 18px; height: 18px; flex: 0 0 18px;
+      transition: transform .15s ease;
+      color: var(--accent);
+    }
+    details.lang[open] .chev{ transform: rotate(180deg); }
+
+    .lang-body{
+      margin-top: 10px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 15px;
+    }
+    .lang-body strong{ color:#111827; }
+    .join{
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed #e5e7eb;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .phones{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top: 6px;
+    }
+    .phone-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      color:#111827;
+      font-weight:700;
+      font-size: 14px;
+    }
+    .phone-pill small{ color: var(--muted); font-weight:600; }
+
+    /* IMPORTANT: no links here that trigger auth */
+    .note{
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
     }
   </style>
 </head>
@@ -120,13 +214,12 @@
         <span>Payments</span>
       </div>
 
-      <!-- ✅ NEW: User Manual link -->
+      <!-- User Manual link (NOTE: if /docs/manual.pdf is not permitAll in security, this will require auth) -->
       <a class="btn btn-primary" th:href="@{/docs/manual.pdf}" target="_blank" rel="noopener">📘 User Manual (PDF)</a>
 
-      <!-- POST /logout with CSRF -->
+      <!-- POST /logout with CSRF (will only work when authenticated) -->
       <form th:action="@{/logout}" method="post" class="logout-form" aria-label="Logout form">
         <button type="submit" class="btn btn-link logout-btn" aria-label="Logout">
-          <!-- logout icon (SVG) -->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
                   stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -142,14 +235,16 @@
     <!-- Main content card -->
     <main class="card" role="main">
       <h1>Welcome!</h1>
+
+      <!-- If unauthenticated, username may be empty; this still renders safely -->
       <p>
         You are logged in as:
-        <strong class="username" th:text="${username}">User</strong>
+        <strong class="username" th:text="${username}">Guest</strong>
       </p>
 
       <div class="divider"></div>
 
-      <!-- Action buttons -->
+      <!-- Action buttons (these WILL trigger auth if user is not logged in) -->
       <div class="row" style="margin-top:4px">
         <a href="/payment" class="btn btn-primary" aria-label="Go to Payment Page">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -159,7 +254,6 @@
           Go to Payment Page
         </a>
 
-        <!-- ✅ NEW: Matrix Area button -->
         <a href="/matrix" class="btn btn-primary" aria-label="Go to Matrix Area">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
             <path d="M3 3h7v7H3V3zm11 0h7v7h-7V3zM3 14h7v7H3v-7zm11 0h7v7h-7v-7z"
@@ -168,7 +262,6 @@
           Matrix
         </a>
 
-        <!-- Secondary POST /logout with CSRF -->
         <form th:action="@{/logout}" method="post" class="logout-form">
           <button type="submit" class="btn btn-link logout-btn">Logout</button>
           <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
@@ -179,10 +272,455 @@
         <span class="tag">Secure area</span>
         <span class="muted">Access your payment features from here.</span>
       </div>
+
+      <div class="divider"></div>
+
+      <!-- ✅ PUBLIC INFO: NO AUTH TRIGGERS, scroll + open languages -->
+      <section class="public-info" aria-label="About AMO in all EU languages">
+        <h2>AMO — Information in all EU languages</h2>
+        <div class="lang-hint">
+          Scroll and tap a language to read. This section contains no links that trigger authentication.
+        </div>
+
+        <!-- EN -->
+        <details class="lang" open>
+          <summary>
+            English
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body">
+            AMO was born from real acts of help — moments when someone stepped in without asking anything in return, and money was never enough to say “thank you”.
+            <br><br>
+            In those moments, something appears: <strong>a debt of gratitude that cannot be paid with money</strong>.
+            <br><br>
+            AMO exists to give that gratitude a path forward — not necessarily back to the same person, but onward through the community.
+            <br><br>
+            AMO is <strong>not money</strong>. It is a <strong>symbolic unit of trust</strong>. Help doesn’t disappear: it circulates, it multiplies, it returns.
+            <div class="join">
+              <strong>How to join the AMO network:</strong> Just send a WhatsApp message with your name and motivation to:
+              <div class="phones">
+                <span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span>
+                <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- ES -->
+        <details class="lang">
+          <summary>
+            Español
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body">
+            AMO nace de actos reales de ayuda: momentos en los que alguien interviene sin pedir nada a cambio, y el dinero no basta para decir “gracias”.
+            <br><br>
+            En esos momentos aparece algo: <strong>una deuda de gratitud que no puede pagarse con dinero</strong>.
+            <br><br>
+            AMO existe para dar continuidad a esa gratitud — no necesariamente hacia la misma persona, sino hacia la comunidad.
+            <br><br>
+            AMO <strong>no es dinero</strong>. Es una <strong>unidad simbólica de confianza</strong>. La ayuda no se pierde: circula, se multiplica y regresa.
+            <div class="join">
+              <strong>Cómo unirte a la red AMO:</strong> Envía un mensaje por WhatsApp con tu nombre y tu motivación a:
+              <div class="phones">
+                <span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span>
+                <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- FR -->
+        <details class="lang">
+          <summary>
+            Français
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body">
+            AMO est né d’actes réels de solidarité : des moments où quelqu’un aide sans rien attendre en retour, et où l’argent ne suffit pas pour dire merci.
+            <br><br>
+            Dans ces instants naît <strong>une dette de gratitude que l’argent ne peut régler</strong>.
+            <br><br>
+            AMO permet à cette gratitude de continuer — pas forcément vers la même personne, mais à travers la communauté.
+            <br><br>
+            AMO <strong>n’est pas de l’argent</strong>. C’est une <strong>unité symbolique de confiance</strong>. L’aide circule, se renforce et revient.
+            <div class="join">
+              <strong>Comment rejoindre le réseau AMO :</strong> Envoyez un message WhatsApp avec votre nom et votre motivation à :
+              <div class="phones">
+                <span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span>
+                <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- DE -->
+        <details class="lang">
+          <summary>
+            Deutsch
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body">
+            AMO entstand aus echten Momenten der Hilfe: wenn jemand eingreift, ohne etwas zu erwarten, und Geld nicht ausreicht, um „Danke“ zu sagen.
+            <br><br>
+            Dabei entsteht <strong>eine Schuld der Dankbarkeit, die nicht mit Geld beglichen werden kann</strong>.
+            <br><br>
+            AMO gibt dieser Dankbarkeit einen Weg nach vorn — nicht unbedingt zurück zur gleichen Person, sondern durch die Gemeinschaft.
+            <br><br>
+            AMO ist <strong>kein Geld</strong>. Es ist eine <strong>symbolische Einheit des Vertrauens</strong>. Hilfe zirkuliert, wächst und kehrt zurück.
+            <div class="join">
+              <strong>So trittst du dem AMO-Netzwerk bei:</strong> Sende eine WhatsApp-Nachricht mit deinem Namen und deiner Motivation an:
+              <div class="phones">
+                <span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span>
+                <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- IT -->
+        <details class="lang">
+          <summary>
+            Italiano
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body">
+            AMO nasce da gesti reali di aiuto: momenti in cui qualcuno interviene senza aspettarsi nulla, e il denaro non basta per dire “grazie”.
+            <br><br>
+            In quei momenti nasce <strong>un debito di gratitudine che il denaro non può ripagare</strong>.
+            <br><br>
+            AMO permette a quella gratitudine di continuare — non necessariamente verso la stessa persona, ma nella comunità.
+            <br><br>
+            AMO <strong>non è denaro</strong>. È una <strong>unità simbolica di fiducia</strong>. L’aiuto circola, si moltiplica e ritorna.
+            <div class="join">
+              <strong>Come entrare nella rete AMO:</strong> Invia un messaggio WhatsApp con il tuo nome e la tua motivazione a:
+              <div class="phones">
+                <span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span>
+                <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- PT -->
+        <details class="lang">
+          <summary>
+            Português
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body">
+            AMO nasceu de atos reais de ajuda: momentos em que alguém intervém sem esperar nada em troca, e o dinheiro não chega para dizer “obrigado”.
+            <br><br>
+            Nesses momentos surge <strong>uma dívida de gratidão que não se paga com dinheiro</strong>.
+            <br><br>
+            AMO dá continuidade a essa gratidão — não necessariamente à mesma pessoa, mas através da comunidade.
+            <br><br>
+            AMO <strong>não é dinheiro</strong>. É uma <strong>unidade simbólica de confiança</strong>. A ajuda circula, multiplica-se e regressa.
+            <div class="join">
+              <strong>Como entrar na rede AMO:</strong> Envie uma mensagem WhatsApp com o seu nome e a sua motivação para:
+              <div class="phones">
+                <span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span>
+                <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- The rest of EU languages -->
+        <!-- For brevity on-page, they’re included as separate accordions too (same content style). -->
+
+        <details class="lang"><summary>Български<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO възникна от истински прояви на помощ: когато някой се намеси без да очаква нищо в замяна, а парите не стигат за „благодаря“.
+            <br><br>
+            Тогава се появява <strong>дълг на благодарност, който не може да се изплати с пари</strong>.
+            <br><br>
+            AMO дава път на тази благодарност — не непременно обратно към същия човек, а през общността.
+            <br><br>
+            AMO <strong>не е пари</strong>. Това е <strong>символична единица на доверие</strong>. Помощта циркулира, умножава се и се връща.
+            <div class="join"><strong>Как да се присъедините към мрежата AMO:</strong> Изпратете WhatsApp съобщение с вашето име и мотивация на:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Hrvatski<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO je nastao iz stvarnih činova pomoći: kada netko pomogne bez očekivanja i novac nije dovoljan za „hvala“.
+            <br><br>
+            Tada nastaje <strong>dug zahvalnosti koji se ne može platiti novcem</strong>.
+            <br><br>
+            AMO omogućuje da ta zahvalnost ide dalje — ne nužno istoj osobi, već kroz zajednicu.
+            <br><br>
+            AMO <strong>nije novac</strong>. To je <strong>simbolična jedinica povjerenja</strong>. Pomoć kruži, raste i vraća se.
+            <div class="join"><strong>Kako se pridružiti AMO mreži:</strong> Pošaljite WhatsApp poruku s vašim imenom i motivacijom na:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Čeština<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO vzniklo ze skutečné pomoci: když někdo zasáhne bez očekávání odměny a peníze nestačí jako „děkuji“.
+            <br><br>
+            Vzniká <strong>dluh vděčnosti, který nelze zaplatit penězi</strong>.
+            <br><br>
+            AMO dává této vděčnosti cestu dál — ne nutně zpět stejné osobě, ale komunitou.
+            <br><br>
+            AMO <strong>není peníze</strong>. Je to <strong>symbolická jednotka důvěry</strong>. Pomoc proudí, sílí a vrací se.
+            <div class="join"><strong>Jak se připojit k síti AMO:</strong> Pošlete WhatsApp zprávu se svým jménem a motivací na:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Dansk<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO opstod af ægte hjælp: når nogen træder til uden at forvente noget tilbage, og penge ikke rækker som “tak”.
+            <br><br>
+            Der opstår <strong>en taknemmelighedsgæld, som ikke kan betales med penge</strong>.
+            <br><br>
+            AMO lader taknemmeligheden leve videre gennem fællesskabet.
+            <br><br>
+            AMO er <strong>ikke penge</strong>. Det er en <strong>symbolsk enhed af tillid</strong>. Hjælp cirkulerer, vokser og vender tilbage.
+            <div class="join"><strong>Sådan kommer du med i AMO-netværket:</strong> Send en WhatsApp-besked med dit navn og din motivation til:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Nederlands<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO is ontstaan uit echte momenten van hulp: wanneer iemand helpt zonder iets terug te verwachten, en geld geen passend “dank je” is.
+            <br><br>
+            Dan ontstaat <strong>een schuld van dankbaarheid die je niet met geld kunt betalen</strong>.
+            <br><br>
+            AMO laat die dankbaarheid verder gaan — niet per se naar dezelfde persoon, maar door de gemeenschap.
+            <br><br>
+            AMO is <strong>geen geld</strong>. Het is een <strong>symbolische eenheid van vertrouwen</strong>. Hulp circuleert, groeit en keert terug.
+            <div class="join"><strong>Hoe je lid wordt van het AMO-netwerk:</strong> Stuur een WhatsApp-bericht met je naam en motivatie naar:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Eesti<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO sündis päris abist: kui keegi sekkub ootusteta ja rahast ei piisa, et öelda “aitäh”.
+            <br><br>
+            Siis tekib <strong>tänuvõlg, mida ei saa rahaga tasuda</strong>.
+            <br><br>
+            AMO annab tänulikkusele tee edasi — mitte tingimata samale inimesele, vaid kogukonna kaudu.
+            <br><br>
+            AMO <strong>ei ole raha</strong>. See on <strong>usalduslik sümboolne ühik</strong>. Abi ringleb, kasvab ja tuleb tagasi.
+            <div class="join"><strong>Kuidas liituda AMO võrgustikuga:</strong> Saada WhatsAppi sõnum oma nime ja motivatsiooniga:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Suomi<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO syntyi aidosta avusta: kun joku auttaa ilman vastapalvelusta ja raha ei riitä kiitokseksi.
+            <br><br>
+            Silloin syntyy <strong>kiitollisuuden velka, jota ei voi maksaa rahalla</strong>.
+            <br><br>
+            AMO antaa kiitollisuudelle tien eteenpäin yhteisön kautta.
+            <br><br>
+            AMO <strong>ei ole rahaa</strong>. Se on <strong>luottamuksen symbolinen yksikkö</strong>. Apu kiertää, kasvaa ja palaa.
+            <div class="join"><strong>Näin liityt AMO-verkostoon:</strong> Lähetä WhatsApp-viesti nimesi ja motivaatiosi kanssa:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Ελληνικά<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            Το AMO γεννήθηκε από πραγματικές πράξεις βοήθειας: όταν κάποιος παρεμβαίνει χωρίς να ζητά κάτι σε αντάλλαγμα, και τα χρήματα δεν αρκούν για να πεις «ευχαριστώ».
+            <br><br>
+            Τότε δημιουργείται <strong>ένα χρέος ευγνωμοσύνης που δεν πληρώνεται με χρήματα</strong>.
+            <br><br>
+            Το AMO δίνει συνέχεια σε αυτή την ευγνωμοσύνη μέσα από την κοινότητα.
+            <br><br>
+            Το AMO <strong>δεν είναι χρήμα</strong>. Είναι μια <strong>συμβολική μονάδα εμπιστοσύνης</strong>. Η βοήθεια κυκλοφορεί, πολλαπλασιάζεται και επιστρέφει.
+            <div class="join"><strong>Πώς να μπείτε στο δίκτυο AMO:</strong> Στείλτε μήνυμα WhatsApp με το όνομά σας και το κίνητρό σας στα:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Magyar<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            Az AMO valódi segítségből született: amikor valaki elvárások nélkül lép közbe, és a pénz nem elég a „köszönöm”-höz.
+            <br><br>
+            Ilyenkor keletkezik <strong>egy hálaadósság, amit nem lehet pénzzel megfizetni</strong>.
+            <br><br>
+            Az AMO lehetővé teszi, hogy a hála tovább menjen a közösségen keresztül.
+            <br><br>
+            Az AMO <strong>nem pénz</strong>. Ez a <strong>bizalom szimbolikus egysége</strong>. A segítség körbejár, megsokszorozódik és visszatér.
+            <div class="join"><strong>Hogyan csatlakozz az AMO hálózathoz:</strong> Küldj WhatsApp üzenetet a neveddel és a motivációddal:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Gaeilge<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            Rugadh AMO as gníomhartha fíor-chabhrach: nuair a chabhraíonn duine gan súil le haon luach saothair, agus ní leor airgead le “go raibh maith agat” a rá.
+            <br><br>
+            Cruthaítear <strong>fiachas buíochais nach féidir a íoc le hairgead</strong>.
+            <br><br>
+            Tugann AMO bealach don bhuíochas dul ar aghaidh tríd an bpobal.
+            <br><br>
+            Ní airgead é AMO; is <strong>aonad siombalach iontaobhais</strong> é. Scaiptear an chabhair, fásann sí, agus filleann sí.
+            <div class="join"><strong>Conas dul isteach i líonra AMO:</strong> Seol teachtaireacht WhatsApp le d’ainm agus do spreagadh chuig:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Latviešu<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO radās no īstas palīdzības: kad kāds iesaistās bez gaidām un ar naudu nepietiek, lai pateiktu “paldies”.
+            <br><br>
+            Tad rodas <strong>pateicības parāds, ko nevar samaksāt ar naudu</strong>.
+            <br><br>
+            AMO ļauj pateicībai turpināties caur kopienu.
+            <br><br>
+            AMO <strong>nav nauda</strong>. Tā ir <strong>simboliska uzticēšanās vienība</strong>. Palīdzība cirkulē, aug un atgriežas.
+            <div class="join"><strong>Kā pievienoties AMO tīklam:</strong> Nosūtiet WhatsApp ziņu ar savu vārdu un motivāciju uz:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Lietuvių<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO gimė iš tikros pagalbos: kai žmogus įsikiša nieko nesitikėdamas, o pinigų nepakanka pasakyti „ačiū“.
+            <br><br>
+            Tuomet atsiranda <strong>dėkingumo skola, kurios neįmanoma apmokėti pinigais</strong>.
+            <br><br>
+            AMO leidžia dėkingumui tęstis per bendruomenę.
+            <br><br>
+            AMO <strong>nėra pinigai</strong>. Tai <strong>simbolinė pasitikėjimo vienetas</strong>. Pagalba cirkuliuoja, auga ir sugrįžta.
+            <div class="join"><strong>Kaip prisijungti prie AMO tinklo:</strong> Išsiųskite WhatsApp žinutę su savo vardu ir motyvacija į:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Malti<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO twieled minn għajnuna reali: meta xi ħadd jidħol biex jgħin bla ma jistenna xejn lura, u l-flus ma jkunux biżżejjed biex tgħid “grazzi”.
+            <br><br>
+            Jinħoloq <strong>dejn ta’ gratitudni li ma jitħallasx bil-flus</strong>.
+            <br><br>
+            AMO jagħti triq ’il quddiem lil dik il-gratitudni permezz tal-komunità.
+            <br><br>
+            AMO <strong>mhuwiex flus</strong>. Hu <strong>unità simbolika ta’ fiduċja</strong>. L-għajnuna ddur, tikber, u terġa’ lura.
+            <div class="join"><strong>Kif tidħol fin-netwerk AMO:</strong> Ibgħat WhatsApp b’ismek u l-motivazzjoni tiegħek lil:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Polski<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO powstało z prawdziwych aktów pomocy: gdy ktoś pomaga bez oczekiwań, a pieniądze nie wystarczają, by powiedzieć „dziękuję”.
+            <br><br>
+            Wtedy rodzi się <strong>dług wdzięczności, którego nie da się spłacić pieniędzmi</strong>.
+            <br><br>
+            AMO pozwala wdzięczności iść dalej przez społeczność.
+            <br><br>
+            AMO <strong>nie jest pieniądzem</strong>. To <strong>symboliczna jednostka zaufania</strong>. Pomoc krąży, rośnie i wraca.
+            <div class="join"><strong>Jak dołączyć do sieci AMO:</strong> Wyślij WhatsApp z imieniem i motywacją na:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Română<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO s-a născut din acte reale de ajutor: când cineva intervine fără a aștepta ceva în schimb, iar banii nu sunt suficienți pentru „mulțumesc”.
+            <br><br>
+            Apare <strong>o datorie de recunoștință care nu poate fi plătită cu bani</strong>.
+            <br><br>
+            AMO permite recunoștinței să meargă mai departe prin comunitate.
+            <br><br>
+            AMO <strong>nu este bani</strong>. Este o <strong>unitate simbolică a încrederii</strong>. Ajutorul circulă, crește și se întoarce.
+            <div class="join"><strong>Cum te alături rețelei AMO:</strong> Trimite WhatsApp cu numele și motivația ta la:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Slovenčina<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO vzniklo zo skutočnej pomoci: keď niekto pomôže bez očakávania odmeny a peniaze nestačia na „ďakujem“.
+            <br><br>
+            Vzniká <strong>dlh vďačnosti, ktorý sa nedá splatiť peniazmi</strong>.
+            <br><br>
+            AMO umožňuje, aby vďačnosť pokračovala komunitou.
+            <br><br>
+            AMO <strong>nie sú peniaze</strong>. Je to <strong>symbolická jednotka dôvery</strong>. Pomoc prúdi, rastie a vracia sa.
+            <div class="join"><strong>Ako sa pripojiť k sieti AMO:</strong> Pošlite WhatsApp so svojím menom a motiváciou na:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Slovenščina<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO je nastal iz resničnih dejanj pomoči: ko nekdo pomaga brez pričakovanj in denar ni dovolj, da rečeš »hvala«.
+            <br><br>
+            Takrat nastane <strong>dolg hvaležnosti, ki ga ni mogoče poravnati z denarjem</strong>.
+            <br><br>
+            AMO omogoča, da hvaležnost teče naprej skozi skupnost.
+            <br><br>
+            AMO <strong>ni denar</strong>. Je <strong>simbolična enota zaupanja</strong>. Pomoč kroži, raste in se vrača.
+            <div class="join"><strong>Kako se pridružiti omrežju AMO:</strong> Pošljite WhatsApp z vašim imenom in motivacijo na:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="lang"><summary>Svenska<svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <div class="lang-body">
+            AMO föddes ur verkliga handlingar av hjälp: när någon kliver fram utan krav, och pengar inte räcker som tack.
+            <br><br>
+            Då uppstår <strong>en tacksamhetsskuld som inte kan betalas med pengar</strong>.
+            <br><br>
+            AMO låter tacksamheten gå vidare genom gemenskapen.
+            <br><br>
+            AMO är <strong>inte pengar</strong>. Det är en <strong>symbolisk enhet av tillit</strong>. Hjälp cirkulerar, växer och återvänder.
+            <div class="join"><strong>Så går du med i AMO-nätverket:</strong> Skicka WhatsApp med ditt namn och din motivation till:
+              <div class="phones"><span class="phone-pill">+32 455 145 672 <small>(WhatsApp)</small></span><span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span></div>
+            </div>
+          </div>
+        </details>
+
+        <div class="note">
+          Note: For this page to be accessible without authentication, your security config must include <code>/home</code> in <code>permitAll()</code>.
+          Also, if <code>/docs/manual.pdf</code> should be public, add <code>/docs/**</code> to <code>permitAll()</code>.
+        </div>
+      </section>
     </main>
   </div>
 </body>
 </html>
+
 
 
 
