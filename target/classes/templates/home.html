@@ -203,6 +203,11 @@
       font-size: 13px;
       color: var(--muted);
     }
+
+    /* ✅ ADDED (only) to preserve elvish line breaks when inserted */
+    .elvish{
+      white-space: pre-line;
+    }
   </style>
 </head>
 <body>
@@ -357,6 +362,40 @@
                 <span class="phone-pill">+34 685 518 121 <small>(WhatsApp)</small></span>
               </div>
             </div>
+          </div>
+        </details>
+
+        <!-- ✅ ADDED: ELVISH (Sindarin) -->
+        <details class="lang">
+          <summary>
+            Elvish (Sindarin)
+            <svg class="chev" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </summary>
+          <div class="lang-body elvish">
+AMO edain o thôlîr gwirion o gared.
+
+Lû i phen nîn dartha,
+û-chebin na dam, û-chebin na galu.
+
+Lû i phen i nárë ú-farn
+na peded hantanyel.
+
+Mi lû thîn, edra nótë benn:
+nótë hantanyel i nárë ú-bedi.
+
+AMO lheidha i hantanyel na mened adhû,
+law an-dannen, ach ter i chenedh.
+
+AMO ú-nárë.
+Nae têw estel.
+
+I reitha hîr.
+Sîl.
+Adannen.
+
+AMO prestatha i hantanyel na raith cuina na gared.
           </div>
         </details>
 
@@ -719,6 +758,7 @@
   </div>
 </body>
 </html>
+
 
 
 
