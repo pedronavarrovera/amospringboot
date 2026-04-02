@@ -4,7 +4,6 @@
 # Option 1 (recommended): Container images (full control, Java 23 OK)
 # Build (Java 23)
 #
-RUN echo "USING-DOCKERFILE-2026-04-03" 
 #
 FROM maven:3.9-eclipse-temurin-23 AS build
 # Docker image that already includes Maven 3.9 and Eclipse Temurin JDK 23
@@ -23,6 +22,7 @@ RUN mvn -q -DskipTests dependency:go-offline
 # can reuse the cached dependency layer
 COPY . .
 # Copies the rest of the project files into the container, including source code and resources
+RUN echo "USING-DOCKERFILE-2026-04-03"
 RUN mvn -q -DskipTests package
 # Builds the application this creates a JAR file in target/, such as target/myapp-0.0.1-SNAPSHOT.jar
 # Run (JRE 23)
