@@ -28,7 +28,7 @@ RUN mvn -q -DskipTests package
 # That makes the final image:smaller, cleaner, more secure
 FROM eclipse-temurin:23-jre
 WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/target/amospringboot-0.0.1-SNAPSHOT.jar app.jar
 # Copies the built JAR from the build stage into the runtime image
 # So the final container only contains the runnable JAR, not the source code or Maven cache
 ENV PORT=8080 JAVA_OPTS=""
