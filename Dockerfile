@@ -3,7 +3,9 @@
 #
 # Option 1 (recommended): Container images (full control, Java 23 OK)
 # Build (Java 23)
-# 
+#
+RUN echo "USING-DOCKERFILE-2026-04-03" 
+#
 FROM maven:3.9-eclipse-temurin-23 AS build
 # Docker image that already includes Maven 3.9 and Eclipse Temurin JDK 23
 # AS build gives this stage the name build, so it can be referenced later
