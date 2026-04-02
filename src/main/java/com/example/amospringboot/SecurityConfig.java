@@ -41,6 +41,9 @@ public class SecurityConfig {
 
             // ---------- OAuth2 / OIDC Login ----------
             // Keep defaults, but make success/failure explicit to avoid ambiguous flows.
+            // spring-boot-starter-oauth2-client brings in Spring Security transitively, and your SecurityConfig is actively turning it on
+            // with .oauth2Login(...).So even if you do not explicitly declare spring-boot-starter-security, your app can still use Spring
+            // Security because it is already coming from the OAuth2 starter
             .oauth2Login(oauth -> oauth
                 .defaultSuccessUrl("/home", true)
                 .failureUrl("/login?error")
