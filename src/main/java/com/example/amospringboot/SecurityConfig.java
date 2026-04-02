@@ -29,9 +29,10 @@ public class SecurityConfig {
             // ---------- Enforce HTTPS so cookies are Secure and redirect_uri is https ----------
             .requiresChannel(ch -> ch.anyRequest().requiresSecure())
 
-            // ---------- Authorization ----------
+            // ---------- Authorization ---------- note: allow Actuator endpoints
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/public/**", "/health",
+                                 "/actuator/health", "/actuator/health/**",
                                  "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico","/docs/**")
                 .permitAll()
                 // Matrix area (UI pages + JSON endpoints)
